@@ -1,12 +1,10 @@
 # HPC CPET report builder
 
-<p align="center"><img src="docs/report-preview.png" alt="Sneak peek of the redesigned report: the test diagram (sample data)" width="420"></p>
-
-*The report's test diagram, shown with made-up sample data.*
-
 Single-file web app (React + Babel in the browser, PDF.js for PDF import) that turns an existing
 cardiopulmonary exercise test (CPET) report PDF, or a raw breath-by-breath data sheet (.xlsx),
 into a client-friendly report. Clinical and Performance report types.
+
+<p align="center"><img src="docs/treadmill-woman.png" alt="Woman running on a treadmill wearing a breathing mask" width="260"></p>
 
 - `index.html` is the runnable app; open it in a browser.
 - `src/page.html` is the editable source (images are `__BLOB_n__` placeholders held in `src/blobs.json`).
