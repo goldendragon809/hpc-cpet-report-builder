@@ -1,0 +1,2789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HPC CPET Report Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#F6F6F7; --surface:#FFFFFF; --ink:#161718; --ink-muted:#5B5E62; --ink-faint:#8B8E92; --line:#E3E4E6;
+    --teal:#A8332D; --teal-dark:#7A211D; --teal-pale:#F5E3E1; --blue:#3A2E45; --blue-pale:#EAE5EE;
+    --amber:#C8965D; --amber-pale:#F8EDDD; --coral:#BA5436; --coral-pale:#F9E5DA;
+    --wine:#5C2320; --wine-pale:#F2E1DE; --sand:#D99764; --sand-pale:#FAEBDC;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#121212; --surface:#1C1C1E; --ink:#F2F2F3; --ink-muted:#B0B3B6; --ink-faint:#7A7D80; --line:#2E2E30;
+      --teal:#D9645C; --teal-dark:#A8332D; --teal-pale:#3A2321; --blue:#8A76A0; --blue-pale:#2A2430;
+      --amber:#E0AD73; --amber-pale:#3A2E1E; --coral:#D97B54; --coral-pale:#3A2419;
+      --wine:#C97267; --wine-pale:#3A2420; --sand:#E8B98C; --sand-pale:#3A2C1E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#121212; --surface:#1C1C1E; --ink:#F2F2F3; --ink-muted:#B0B3B6; --ink-faint:#7A7D80; --line:#2E2E30;
+    --teal:#D9645C; --teal-dark:#A8332D; --teal-pale:#3A2321; --blue:#8A76A0; --blue-pale:#2A2430;
+    --amber:#E0AD73; --amber-pale:#3A2E1E; --coral:#D97B54; --coral-pale:#3A2419;
+    --wine:#C97267; --wine-pale:#3A2420; --sand:#E8B98C; --sand-pale:#3A2C1E;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); font-family: system-ui, -apple-system, sans-serif; }
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  .avoid-break { break-inside: avoid; page-break-inside: avoid; }
+  @media print {
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .print-only { display: block !important; }
+    .no-print { display: none !important; }
+    .report-sheet { box-shadow: none !important; border: none !important; margin: 0 !important; }
+    body { background: white !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/6.26.0/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+</script>
+
+<script type="text/babel" data-type="module">
+const { useState, useMemo, useRef, useEffect } = React;
+
+const C = {
+  bg: "var(--bg)", surface: "var(--surface)", ink: "var(--ink)", inkMuted: "var(--ink-muted)",
+  inkFaint: "var(--ink-faint)", line: "var(--line)", teal: "var(--teal)", tealDark: "var(--teal-dark)",
+  tealPale: "var(--teal-pale)", blue: "var(--blue)", bluePale: "var(--blue-pale)",
+  amber: "var(--amber)", amberPale: "var(--amber-pale)", coral: "var(--coral)", coralPale: "var(--coral-pale)",
+  wine: "var(--wine)", winePale: "var(--wine-pale)", sand: "var(--sand)", sandPale: "var(--sand-pale)",
+};
+const ZONE_COLORS = ["#4A90D9", "#4CAF50", "#F2C94C", "#F2994A", "#EB5757"];
+const LOGO_B64 = "__BLOB_0__";
+
+/* ---------- icons ---------- */
+const ICON_PATHS = {
+  Heart: "M12 21s-6.7-4.35-9.3-8.1C1 10.5 1.4 7 4 5.3c2-1.3 4.4-.8 5.7.9L12 8.6l2.3-2.4c1.3-1.7 3.7-2.2 5.7-.9 2.6 1.7 3 5.2 1.3 7.6C18.7 16.65 12 21 12 21z",
+  Wind: "M3 8h9.5a2.5 2.5 0 1 0-2-4 M3 16h13.5a2.5 2.5 0 1 1-2 4 M3 12h16.5a2.5 2.5 0 1 0-2-4",
+  Gauge: "M12 3a9 9 0 1 0 9 9 M12 12l4.2-4.2 M12 12h.01 M4.2 7.8l1.4 1.4 M19.8 7.8l-1.4 1.4",
+  TrendingUp: "M3 17l6-6 4 4 8-8 M15 7h6v6",
+  Download: "M12 3v12 M7 11l5 5 5-5 M5 21h14",
+  Plus: "M12 5v14 M5 12h14",
+  Trash2: "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6",
+  ArrowLeft: "M19 12H5 M11 5l-7 7 7 7",
+  Upload: "M12 21V9 M7 13l5-5 5 5 M5 21h14",
+  FileText: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h8 M8 9h2",
+};
+function Icon({ name, size = 16, color, style }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color || "currentColor"}
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
+      <path d={ICON_PATHS[name]} />
+    </svg>
+  );
+}
+
+/* ---------- default data ---------- */
+function paceFromSpeed(kmh) {
+  const v = Number(kmh);
+  if (!v || v <= 0) return "";
+  const sec = Math.round(3600 / v);
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+}
+function deriveThresholdPoints(stages, parsed, isBike) {
+  const pts = (stages || []).filter((s) => s && Number(s.speed) > 0 && Number(s.vo2) > 0 && !/recovery|rest/i.test(String(s.label || "")));
+  const fmt = (spd) => (isBike ? String(Math.round(spd)) : paceFromSpeed(spd));
+  const at = (vo2) => {
+    const target = Number(vo2);
+    if (!target) return null;
+    for (let i = 0; i < pts.length; i++) {
+      if (Math.abs(Number(pts[i].vo2) - target) < 0.05) return { speed: Number(pts[i].speed), hr: Number(pts[i].hr) };
+      if (i > 0) {
+        const a = pts[i - 1], b = pts[i];
+        const lo = Math.min(Number(a.vo2), Number(b.vo2)), hi = Math.max(Number(a.vo2), Number(b.vo2));
+        if (target >= lo && target <= hi && Number(b.vo2) !== Number(a.vo2)) {
+          const f = (target - Number(a.vo2)) / (Number(b.vo2) - Number(a.vo2));
+          return { speed: Number(a.speed) + f * (Number(b.speed) - Number(a.speed)), hr: Number(a.hr) + f * (Number(b.hr) - Number(a.hr)) };
+        }
+      }
+    }
+    return null;
+  };
+  const out = {};
+  const t1 = at(parsed.get1), t2 = at(parsed.get2);
+  if (t1) { out.get1Pace = fmt(t1.speed); out.get1Hr = String(Math.round(t1.hr)); }
+  if (t2) { out.get2Pace = fmt(t2.speed); out.get2Hr = String(Math.round(t2.hr)); }
+  if (parsed.maxSpeed) out.peakPace = fmt(Number(parsed.maxSpeed));
+  return out;
+}
+
+const defaultClient = {
+  name: "John Smith", dob: "01/01/1984", sex: "Male", height: "179.9", weight: "73.1",
+  reportDate: "8 August 2023", testDate: "28 July 2023", tester: "Jane Smith, Clinical Exercise Physiologist (RCEPNZ)",
+};
+const defaultResults = {
+  testMode: "treadmill", vo2max: "52.1", percentile: "", hrPeak: "194", hrPredictedPct: "108",
+  maxSpeed: "15", maxIncline: "1", rpe: "20", get1: "36.7", get1Pct: "70", get2: "49.7", get2Pct: "96",
+  rer: "1.02", hrRecovery1: "159", hrRecovery3: "124", testDuration: "20",
+  get1Pace: "6:12", get1Hr: "156", get2Pace: "4:37", get2Hr: "180", peakPace: "4:00",
+};
+const defaultZones = [
+  { name: "Recovery", pace: "Slower than 8:30 min/km (brisk walk)", hr: "Below 140 bpm", effort: "Easy", duration: ">3hr", alsoLow: "Recovery", alsoHigh: "Recovery" },
+  { name: "Extensive aerobic", pace: "6:00–5:27 min/km (comfortable run)", hr: "150–170 bpm", effort: "Comfortable", duration: "1–3hr", alsoLow: "Threshold 1 · Aerobic base", alsoHigh: "Aerobic base · Threshold 1" },
+  { name: "Intensive aerobic", pace: "5:27–5:00 min/km (run)", hr: "170–175 bpm", effort: "Stressful", duration: "30–90min", alsoLow: "Aerobic base", alsoHigh: "Threshold 2" },
+  { name: "Threshold", pace: "5:00–4:37 min/km (fast run)", hr: "175–185 bpm", effort: "Very stressful", durLow: "8 min", durHigh: "2 min", exLow: "3 × 8 min, with 2 min rest between", exHigh: "6 × 2 min, with 1 min rest between", alsoLow: "Threshold 2 · VO2max", alsoHigh: "Threshold 2" },
+  { name: "Maximal", pace: "Faster than 4:37 min/km (sprint)", hr: "185+ bpm", effort: "Maximal", durLow: "1 min", durHigh: "6 sec", exLow: "5 × 1 min, with 3 min rest between", exHigh: "10 × 6 sec sprints, with full recovery between", alsoLow: "VO2max", alsoHigh: "VO2max · Sprint power" },
+];
+const defaultRecs = [
+  { exercise: "Push ups (or weighted push ups)", detail: "2–3 sets of 20 reps, 3x per week" },
+  { exercise: "Bent-over row", detail: "3–4 sets of 2–10 reps, 3x per week" },
+  { exercise: "Overhead press", detail: "2–3 sets of 8–10 reps, 3x per week" },
+];
+const defaultHistory = "";
+const defaultStages = [
+  { t: 0, hr: 60, vo2: 3.3, speed: 0, label: "Rest" },
+  { t: 2, hr: 100, vo2: 16.2, speed: 6, label: "2 min" },
+  { t: 4, hr: 108, vo2: 19.8, speed: 7, label: "4 min" },
+  { t: 6, hr: 139, vo2: 31.4, speed: 8, label: "6 min" },
+  { t: 8, hr: 147, vo2: 35.2, speed: 9, label: "8 min" },
+  { t: 10, hr: 160, vo2: 37.4, speed: 10, label: "10 min" },
+  { t: 12, hr: 167, vo2: 38.9, speed: 11, label: "12 min" },
+  { t: 14, hr: 172, vo2: 43.6, speed: 12, label: "14 min" },
+  { t: 16, hr: 180, vo2: 49.7, speed: 13, label: "16 min" },
+  { t: 18, hr: 187, vo2: 50.6, speed: 14, label: "18 min" },
+  { t: 20, hr: 194, vo2: 52.1, speed: 15, label: "20 min" },
+];
+const defaultSummary = "The results from your cardiopulmonary exercise assessment showed an 'excellent' level of aerobic fitness when compared to healthy males of a similar age. You did not present with any signs or symptoms that would preclude you from undertaking exercise at high-maximal intensities. Maintaining a good level of cardiorespiratory fitness is directly related to a reduced risk of developing multiple non-communicable diseases such as cardiovascular disease, diabetes, and some cancers. Your current exercise regime with 3-5 aerobic exercise sessions each week is optimal for maintaining your excellent level of cardiorespiratory fitness.\n\nYou achieve great variation in the type of aerobic exercise you complete (cycling, running, rucking) with good loading through the lower limb. Including some form of functional upper body strengthening would be optimal to maintaining whole-body functional strength as you age. I recommend the following exercises to be completed 3x each week:";
+
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"];
+  const v = Number(n) % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+const NORMS = {"ages":["20-29","30-39","40-49","50-59","60-69","70-79","80-89"],"pct":[95,90,85,80,75,70,65,60,55,50,45,40,35,30,25,20,15,10,5],"male_run":{"n":[1278,1473,2119,2082,1663,776,173],"rows":[[63.5,58.8,54.6,47.6,40.6,34.0,24.1],[58.6,55.5,50.8,43.4,37.1,29.4,22.8],[56.3,53.1,47.8,40.6,34.3,27.4,22.2],[54.5,50.0,45.2,38.3,32.0,25.9,21.4],[53.1,48.2,43.1,35.8,30.1,24.8,20.8],[51.9,46.4,40.9,34.3,28.7,23.8,20.0],[50.1,44.9,39.3,32.9,27.6,22.8,18.9],[49.0,43.4,37.9,31.8,26.5,22.2,18.4],[47.9,41.6,36.5,30.6,25.5,21.4,18.0],[46.5,39.7,35.3,29.2,24.6,20.6,17.6],[45.0,38.2,33.8,27.9,23.6,19.7,17.0],[43.6,37.0,32.4,26.9,22.8,19.1,16.6],[41.7,35.3,31.2,25.8,21.8,18.2,16.3],[40.0,33.5,29.7,24.5,20.7,17.3,16.1],[37.6,31.8,28.2,23.4,19.6,16.7,15.6],[35.2,29.8,26.7,22.2,18.5,15.9,14.8],[32.2,27.3,24.7,20.7,17.3,14.9,13.9],[28.6,24.9,22.1,18.6,15.8,13.6,12.9],[24.2,20.6,18.8,16.1,13.0,11.6,11.8]]},"male_cycle":{"n":[367,251,446,601,465,257,52],"rows":[[66.1,60.3,47.3,44.0,37.7,29.0,19.0],[62.2,50.5,41.9,37.1,31.4,26.2,18.7],[59.3,44.4,37.2,33.7,28.6,23.7,17.8],[57.0,39.0,35.1,31.6,27.0,22.6,17.3],[54.8,37.0,32.9,30.2,25.8,21.6,17.2],[52.8,35.5,31.4,28.4,24.5,20.6,16.2],[50.6,34.0,30.0,27.2,23.8,20.1,15.3],[48.3,31.6,29.0,26.3,23.3,19.4,14.6],[46.2,30.8,28.1,25.5,22.6,18.7,13.9],[44.0,30.2,27.4,24.5,21.7,18.3,13.2],[42.5,29.2,26.3,23.9,21.3,17.6,12.4],[40.8,27.9,25.4,23.1,20.7,17.1,12.2],[38.9,27.0,24.9,22.6,19.9,16.7,11.6],[37.4,25.7,23.8,22.0,19.1,16.0,11.1],[36.0,24.1,22.6,21.3,18.4,15.6,10.4],[34.5,22.6,21.9,20.2,17.5,14.7,9.7],[32.6,21.2,21.1,19.0,16.3,12.9,9.3],[28.8,19.1,19.8,17.2,14.7,11.0,8.4],[23.7,15.7,18.0,13.8,12.4,9.5,8.0]]},"female_run":{"n":[1142,1043,1372,1457,1045,549,106],"rows":[[52.1,45.9,41.1,36.0,30.0,24.3,22.7],[49.0,42.1,37.8,32.4,27.3,22.8,20.8],[46.8,39.4,35.0,30.0,25.6,21.5,19.3],[44.8,37.0,33.0,28.4,24.3,20.8,18.4],[43.3,35.0,31.2,27.3,23.3,20.1,17.7],[41.8,33.6,30.0,26.3,22.4,19.6,17.3],[40.7,32.2,28.8,25.5,21.6,19.0,16.6],[39.0,31.0,27.7,24.6,20.9,18.3,16.0],[37.9,29.7,26.6,23.7,20.2,17.8,15.7],[36.6,28.3,25.7,22.9,19.6,17.2,15.4],[35.3,27.3,24.8,22.1,18.8,16.8,15.1],[34.0,26.4,23.9,21.5,18.3,16.2,14.7],[32.4,25.4,22.8,20.9,17.7,15.6,14.2],[30.8,24.2,21.8,20.1,17.0,15.2,13.7],[29.2,23.0,20.7,19.3,16.3,14.7,13.2],[27.2,21.9,19.7,18.5,15.4,14.0,12.6],[25.1,20.4,18.6,17.5,14.5,13.5,11.9],[22.5,18.6,17.2,16.5,13.4,12.3,11.4],[19.1,16.1,15.1,14.5,11.9,11.2,10.7]]},"female_cycle":{"n":[411,377,674,1115,750,308,27],"rows":[[50.7,38.3,30.6,25.1,22.1,19.1,18.9],[46.0,32.0,27.3,22.4,20.3,18.0,18.1],[42.7,29.0,24.9,21.2,19.1,17.3,15.9],[40.9,27.0,23.5,20.4,18.5,16.8,14.3],[39.1,25.8,22.6,19.6,17.9,16.3,13.2],[37.5,24.5,21.8,18.9,17.4,15.9,12.9],[35.6,23.5,21.1,18.3,16.8,15.4,11.9],[34.3,22.9,20.3,17.8,16.4,15.0,11.3],[33.2,22.2,19.5,17.3,16.0,14.7,11.1],[31.6,21.6,18.8,16.9,15.7,14.5,10.9],[30.4,20.8,18.4,16.5,15.3,13.9,10.4],[28.9,19.9,17.9,16.1,15.0,13.6,10.1],[27.0,19.1,17.1,15.6,14.6,13.3,9.6],[25.6,18.6,16.6,15.2,14.2,12.9,9.4],[23.6,17.9,15.9,14.8,13.8,12.7,9.1],[21.9,17.0,15.4,14.3,13.4,12.0,8.7],[20.6,15.8,14.7,13.7,12.8,11.5,8.6],[18.8,15.0,13.7,13.0,12.2,10.7,7.8],[16.3,13.5,12.4,11.6,10.9,9.8,6.5]]}};
+
+const NORM_CATS = [
+  { label: "Superior", min: 95 }, { label: "Excellent", min: 80 }, { label: "Good", min: 60 },
+  { label: "Fair", min: 40 }, { label: "Poor", min: 20 }, { label: "Very poor", min: 0 },
+];
+function ageAtTest(dob, testDate) {
+  const m = String(dob || "").match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})/);
+  if (!m) return null;
+  const birth = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  let ref = new Date(testDate);
+  if (!testDate || Number.isNaN(ref.getTime())) {
+    const t = String(testDate || "").match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})/);
+    ref = t ? new Date(Number(t[3]), Number(t[2]) - 1, Number(t[1])) : new Date();
+  }
+  let a = ref.getFullYear() - birth.getFullYear();
+  if (ref.getMonth() < birth.getMonth() || (ref.getMonth() === birth.getMonth() && ref.getDate() < birth.getDate())) a--;
+  return a;
+}
+/* Looks up VO2max in the supplied reference tables. Never guesses: returns { error } when something is missing. */
+function normLookup({ vo2, sex, age, mode }) {
+  const v = parseFloat(vo2);
+  if (!(v > 0)) return { error: "Enter a VO2 max value" };
+  const sx = /^f/i.test(sex || "") ? "female" : /^m/i.test(sex || "") ? "male" : "";
+  if (!sx) return { error: "Sex must be Male or Female" };
+  const a = parseInt(age, 10);
+  if (!(a >= 0)) return { error: "Age or date of birth needed" };
+  const gi = Math.floor(a / 10) - 2;
+  if (a < 20 || a > 89 || gi < 0 || gi > 6) return { error: "Tables cover ages 20–89" };
+  const mk = mode === "bike" ? "cycle" : "run";
+  const tbl = NORMS[sx + "_" + mk];
+  const col = tbl.rows.map((r) => r[gi]);
+  let pct, text;
+  if (v >= col[0]) { pct = 95; text = "95th+"; }
+  else if (v < col[col.length - 1]) { pct = 5; text = "under 5th"; }
+  else {
+    pct = 5;
+    for (let i = 0; i < col.length - 1; i++) {
+      if (v <= col[i] && v >= col[i + 1]) {
+        const hi = NORMS.pct[i], lo = NORMS.pct[i + 1];
+        pct = col[i] === col[i + 1] ? lo : lo + ((v - col[i + 1]) / (col[i] - col[i + 1])) * (hi - lo);
+        break;
+      }
+    }
+    pct = Math.round(pct);
+    text = ordinal(pct);
+  }
+  const cat = NORM_CATS.find((c) => (v >= col[0] ? 95 : pct) >= c.min) || NORM_CATS[NORM_CATS.length - 1];
+  return {
+    pct, text, category: v < col[col.length - 1] ? "Very poor" : cat.label,
+    source: `${mk === "cycle" ? "Cycle ergometer" : "Treadmill"} reference table, ${sx === "female" ? "females" : "males"} ${NORMS.ages[gi]} (n = ${tbl.n[gi].toLocaleString("en-NZ")})`,
+  };
+}
+/* typed override wins; blank means use the tables */
+function resolvePercentile(typed, look) {
+  const t = String(typed == null ? "" : typed).trim();
+  if (t !== "" && !Number.isNaN(Number(t))) return { pct: Number(t), text: ordinal(Math.round(Number(t))), category: classify(Number(t)).label, manual: true, source: "" };
+  if (look && !look.error) return { pct: look.pct, text: look.text, category: look.category, manual: false, source: look.source };
+  return null;
+}
+function classify(pct) {
+  const p = Number(pct);
+  if (pct === "" || pct == null || Number.isNaN(p)) return { label: "Result recorded", tone: C.teal, toneBg: C.tealPale };
+  const c = NORM_CATS.find((x) => p >= x.min) || NORM_CATS[NORM_CATS.length - 1];
+  return { label: c.label, tone: C.teal, toneBg: C.tealPale };
+}
+function normHint(l) { return l.error ? l.error : `${l.text} · ${l.category}`; }
+function article(w) { return /^[aeiou]/i.test(w) ? "an" : "a"; }
+/* ---------- raw data sheet (.xlsx) import ---------- */
+async function unzipXlsx(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf), dec = new TextDecoder();
+  let e = u8.length - 22;
+  while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error("That doesn't look like an .xlsx file");
+  const count = dv.getUint16(e + 10, true);
+  let p = dv.getUint32(e + 16, true);
+  const out = {};
+  for (let i = 0; i < count; i++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+    const lo = dv.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nl));
+    p += 46 + nl + el + cl;
+    if (!/^xl\/(workbook\.xml|_rels\/workbook\.xml\.rels|sharedStrings\.xml|worksheets\/[^\/]+\.xml)$/.test(name)) continue;
+    const ln = dv.getUint16(lo + 26, true), le = dv.getUint16(lo + 28, true);
+    const data = u8.subarray(lo + 30 + ln + le, lo + 30 + ln + le + csize);
+    const bytes = method === 0 ? data : new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
+    out[name] = dec.decode(bytes);
+  }
+  return out;
+}
+function xlColIndex(ref) {
+  const letters = ref.replace(/[0-9]/g, "");
+  let n = 0;
+  for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n - 1;
+}
+function xlReadSheet(xml, sst) {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const grid = [];
+  const cells = doc.getElementsByTagNameNS("*", "c");
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i], ref = c.getAttribute("r") || "";
+    const r = parseInt(ref.replace(/[A-Z]/g, ""), 10) - 1, col = xlColIndex(ref), t = c.getAttribute("t");
+    const vEl = c.getElementsByTagNameNS("*", "v")[0];
+    let val = null;
+    if (t === "inlineStr") val = Array.prototype.map.call(c.getElementsByTagNameNS("*", "t"), (x) => x.textContent).join("");
+    else if (vEl) val = t === "s" ? sst[Number(vEl.textContent)] : (t === "n" || !t) && vEl.textContent !== "" && !Number.isNaN(Number(vEl.textContent)) ? Number(vEl.textContent) : vEl.textContent;
+    if (val === null || val === "") continue;
+    if (!grid[r]) grid[r] = [];
+    grid[r][col] = val;
+  }
+  return grid;
+}
+function hmsToSec(s) {
+  if (typeof s === "number") return Math.round(s * 86400);
+  const m = String(s || "").match(/^(\d+):(\d{2}):(\d{2})$/) || String(s || "").match(/^()(\d+):(\d{2})$/);
+  return m ? (Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3])) : null;
+}
+function secToClock(sec) { const m = Math.floor(sec / 60), s = Math.round(sec % 60); return `${m}:${String(s).padStart(2, "0")}`; }
+const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+async function readRawSheet(file) {
+  const files = await unzipXlsx(await file.arrayBuffer());
+  const sst = [];
+  if (files["xl/sharedStrings.xml"]) {
+    const sd = new DOMParser().parseFromString(files["xl/sharedStrings.xml"], "application/xml");
+    const sis = sd.getElementsByTagNameNS("*", "si");
+    for (let i = 0; i < sis.length; i++) sst.push(Array.prototype.map.call(sis[i].getElementsByTagNameNS("*", "t"), (x) => x.textContent).join(""));
+  }
+  const wb = new DOMParser().parseFromString(files["xl/workbook.xml"] || "", "application/xml");
+  const rels = new DOMParser().parseFromString(files["xl/_rels/workbook.xml.rels"] || "", "application/xml");
+  const target = {};
+  const rl = rels.getElementsByTagNameNS("*", "Relationship");
+  for (let i = 0; i < rl.length; i++) target[rl[i].getAttribute("Id")] = rl[i].getAttribute("Target");
+  const sheets = {};
+  const sl = wb.getElementsByTagNameNS("*", "sheet");
+  for (let i = 0; i < sl.length; i++) {
+    const rid = sl[i].getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+    let path = target[rid] || ""; path = path.replace(/^\//, ""); if (path.indexOf("xl/") !== 0) path = "xl/" + path;
+    if (files[path]) sheets[sl[i].getAttribute("name")] = xlReadSheet(files[path], sst);
+  }
+  if (!sheets.Data) throw new Error("No 'Data' sheet found. This importer expects the cart's breath-by-breath export.");
+  return parseRawGrids(sheets.Data, sheets.Results || []);
+}
+function parseRawGrids(data, results) {
+  const meta = {};
+  for (let r = 0; r < 20; r++) {
+    const row = data[r] || [];
+    [[0, 1], [3, 4], [6, 7]].forEach((pr) => { if (typeof row[pr[0]] === "string" && row[pr[1]] != null) meta[row[pr[0]].trim()] = row[pr[1]]; });
+  }
+  const hdrRow = data[0] || [];
+  const col = {};
+  for (let c = 9; c < hdrRow.length; c++) if (typeof hdrRow[c] === "string") col[hdrRow[c]] = c;
+  const need = ["t", "VO2/kg", "HR", "Phase"];
+  const ptCol = col["Phase time"];
+  const spdName = Object.keys(col).filter((k) => /^(speed|velocity)/i.test(k))[0] || null;
+  const missing = need.filter((k) => col[k] == null);
+  if (missing.length) throw new Error("The Data sheet is missing these columns: " + missing.join(", ") + ". Columns found: " + Object.keys(col).slice(0, 40).join(", "));
+  const rows = [];
+  for (let r = 3; r < data.length; r++) {
+    const row = data[r]; if (!row || row[col.t] == null) continue;
+    const sec = hmsToSec(row[col.t]); if (sec == null) continue;
+    const g = (k) => (col[k] != null && typeof row[col[k]] === "number" ? row[col[k]] : null);
+    rows.push({ sec, phaseSec: ptCol != null ? hmsToSec(row[ptCol]) : null, phase: String(row[col.Phase] || ""), vo2: g("VO2"), vo2kg: g("VO2/kg"), hr: g("HR"), rq: g("RQ"), power: g("Power"), ve: g("VE"), rf: g("Rf"), vevo2: g("VE/VO2"), vevco2: g("VE/VCO2"), speed: spdName ? g(spdName) : null });
+  }
+  // Results tab: threshold marks as set in the cart software
+  const res = {};
+  let hdr = null;
+  (results || []).forEach((row) => {
+    if (!row) return;
+    const idx = row.indexOf("VT1\\LT1");
+    if (idx >= 0 && !hdr) hdr = { vt1: idx, vt2: row.indexOf("VT2\\LT2"), max: row.indexOf("Max") };
+    else if (hdr && typeof row[0] === "string" && res[row[0]] == null) res[row[0]] = row;
+  });
+  const pick = (name, which) => { const r = res[name]; return hdr && r && r[hdr[which]] != null ? r[hdr[which]] : null; };
+  const marks = hdr ? {
+    vt1: { time: pick("t", "vt1"), power: pick("Power", "vt1"), vo2kg: pick("VO2/kg", "vt1"), hr: pick("HR", "vt1") },
+    vt2: { time: pick("t", "vt2"), power: pick("Power", "vt2"), vo2kg: pick("VO2/kg", "vt2"), hr: pick("HR", "vt2") },
+    max: { vo2kg: pick("VO2/kg", "max"), hr: pick("HR", "max"), rq: pick("RQ", "max") },
+  } : null;
+  const ex = rows.filter((r) => /^EXERCISE$/i.test(r.phase));
+  const rec = rows.filter((r) => /^RECOVERY$/i.test(r.phase));
+  const rest = rows.filter((r) => /^REST$/i.test(r.phase));
+  if (!ex.length) throw new Error("No EXERCISE rows found in the Data sheet.");
+  const roll = (w) => {
+    let best = null;
+    for (let i = 0; i + w <= ex.length; i++) {
+      const sl = ex.slice(i, i + w); if (sl.some((x) => x.vo2kg == null)) continue;
+      const m = sl.reduce((a, x) => a + x.vo2kg, 0) / w;
+      if (best === null || m > best.v) best = { v: m, end: sl[sl.length - 1].sec };
+    }
+    return best;
+  };
+  const exHrs = ex.map((r) => r.hr).filter((v) => v != null), allHrs = rows.map((r) => r.hr).filter((v) => v != null);
+  const rqs = ex.map((r) => r.rq).filter((v) => v != null);
+  const rec1 = rec.filter((r) => r.hr != null && r.phaseSec === 60)[0] || null;
+  const dm = String(meta["Test date"] || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return {
+    spdName, meta, marks, rows, ex, rec, rest, stepSec: ex.length > 1 ? ex[1].sec - ex[0].sec : 15,
+    cand: {
+      sheet: marks && marks.max.vo2kg != null ? { v: marks.max.vo2kg, note: "as reported on the Results tab" } : null,
+      b15: roll(1), b30: roll(2), b60: roll(4), b120: roll(8),
+    },
+    hrExercise: exHrs.length ? Math.max.apply(null, exHrs) : null,
+    hrAll: allHrs.length ? Math.max.apply(null, allHrs) : null,
+    rerPeak: rqs.length ? Math.max.apply(null, rqs) : null,
+    hrRec1: rec1 ? rec1.hr : null,
+    recSeconds: rec.length ? rec[rec.length - 1].sec - rec[0].sec + 15 : 0,
+    endExerciseSec: ex[ex.length - 1].sec,
+    testDateText: dm ? `${Number(dm[1])} ${MONTHS_LONG[Number(dm[2]) - 1]} ${dm[3]}` : "",
+    name: [meta["First Name"], meta["Last Name"]].filter(Boolean).join(" "),
+  };
+}
+/* turns the parsed sheet into form values; `pick` holds the physiologist's choices */
+function rawToValues(raw, pick) {
+  const c = raw.cand[pick.vo2] || raw.cand.sheet || raw.cand.b60;
+  const vo2 = c ? c.v : null;
+  const hr = pick.hr === "all" ? raw.hrAll : raw.hrExercise;
+  const f1 = (x) => (x == null ? "" : (Math.round(x * 10) / 10).toString());
+  const pct = (g) => (g != null && vo2 ? String(Math.round((g / vo2) * 100)) : "");
+  const m = raw.marks;
+  return {
+    vo2max: f1(vo2), hrPeak: hr == null ? "" : String(Math.round(hr)),
+    get1: m ? f1(m.vt1.vo2kg) : "", get2: m ? f1(m.vt2.vo2kg) : "",
+    get1Pct: m ? pct(m.vt1.vo2kg) : "", get2Pct: m ? pct(m.vt2.vo2kg) : "",
+    get1Hr: m && m.vt1.hr != null ? String(Math.round(m.vt1.hr)) : "", get2Hr: m && m.vt2.hr != null ? String(Math.round(m.vt2.hr)) : "",
+    get1Pace: pick.power && m && m.vt1.power != null ? String(Math.round(m.vt1.power)) : "", get2Pace: pick.power && m && m.vt2.power != null ? String(Math.round(m.vt2.power)) : "",
+    rer: raw.rerPeak == null ? "" : (Math.round(raw.rerPeak * 100) / 100).toFixed(2),
+    hrRecovery1: raw.hrRec1 == null ? "" : String(Math.round(raw.hrRec1)),
+    testDuration: String(Math.round((raw.endExerciseSec / 60) * 10) / 10),
+  };
+}
+/* trend-chart points: rest, then every 2 minutes (mean of the 30 s up to that time), then the final exercise point */
+function rawToStages(raw, usePower) {
+  const mean = (arr, k) => { const v = arr.map((x) => x[k]).filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const out = [];
+  const r0 = raw.rest[0];
+  if (r0 && r0.vo2kg != null) out.push({ t: 0, hr: r0.hr == null ? "" : r0.hr, vo2: Math.round(r0.vo2kg * 10) / 10, speed: 0, label: "Rest" });
+  const end = raw.endExerciseSec;
+  const times = [];
+  for (let s = 120; s < end - 30; s += 120) times.push(s);
+  times.push(end);
+  times.forEach((s) => {
+    const win = raw.ex.filter((x) => x.sec > s - 30 && x.sec <= s);
+    const v = mean(win, "vo2kg"), h = mean(win, "hr"), p = mean(win, "power");
+    if (v == null) return;
+    out.push({ t: Math.round((s / 60) * 100) / 100, hr: h == null ? "" : Math.round(h), vo2: Math.round(v * 10) / 10, speed: usePower && p != null ? Math.round(p) : 0, label: secToClock(s) });
+  });
+  return out;
+}
+
+/* Performance report values from the same sheet layout */
+function rawToPerf(raw, pick, weightKg) {
+  const v = rawToValues(raw, pick);
+  const vo2 = parseFloat(v.vo2max), hrMax = parseFloat(v.hrPeak);
+  const m = raw.marks;
+  const mean = (arr, k) => { const x = arr.map((r) => r[k]).filter((q) => q != null); return x.length ? x.reduce((a, b) => a + b, 0) / x.length : null; };
+  const pts = (k) => raw.ex.filter((r) => r[k] != null).map((r) => [Math.round((r.sec / 60) * 100) / 100, Math.round(r[k] * 10) / 10]);
+  const stages = [];
+  const times = [];
+  for (let sc = 120; sc < raw.endExerciseSec - 30; sc += 120) times.push(sc);
+  times.push(raw.endExerciseSec);
+  times.forEach((sc) => {
+    const win = raw.ex.filter((x) => x.sec > sc - 30 && x.sec <= sc);
+    const vk = mean(win, "vo2kg"); if (vk == null) return;
+    const hr = mean(win, "hr"), ve = mean(win, "ve"), rq = mean(win, "rq"), rf = mean(win, "rf"), sp = mean(win, "speed"), pw = mean(win, "power");
+    stages.push({
+      speed: sp != null ? String(Math.round(sp * 10) / 10) : (pick.power && pw != null ? String(Math.round(pw)) : ""), pace: "",
+      hr: hr == null ? "" : String(Math.round(hr)), hrPct: hr != null && hrMax ? (Math.round((hr / hrMax) * 1000) / 10).toFixed(1) : "",
+      vo2: (Math.round(vk * 10) / 10).toFixed(1), vo2L: weightKg ? (Math.round(((vk * weightKg) / 1000) * 100) / 100).toFixed(2) : "",
+      vo2Pct: vo2 ? (Math.round((vk / vo2) * 1000) / 10).toFixed(1) : "", rpe: "", lactate: "",
+      ve: ve == null ? "" : String(Math.round(ve)), rer: rq == null ? "" : (Math.round(rq * 100) / 100).toFixed(2),
+      rf: rf == null ? "" : String(Math.round(rf)), note: secToClock(sc),
+    });
+  });
+  const vtRow = (g) => ({ vo2: g && g.vo2kg != null ? (Math.round(g.vo2kg * 10) / 10).toFixed(1) : "", vo2Plus: "", pctVo2: g && g.vo2kg != null && vo2 ? (Math.round((g.vo2kg / vo2) * 1000) / 10).toFixed(1) : "",
+    hr: g && g.hr != null ? String(Math.round(g.hr)) : "", pctHr: g && g.hr != null && hrMax ? (Math.round((g.hr / hrMax) * 1000) / 10).toFixed(1) : "", pace: pick.power && g && g.power != null ? String(Math.round(g.power)) : "" });
+  const blankLt = { vo2: "", pctVo2: "", hr: "", pctHr: "", pace: "" };
+  return {
+    vo2Ml: v.vo2max, vo2L: vo2 && weightKg ? (Math.round(((vo2 * weightKg) / 1000) * 100) / 100).toFixed(2) : "", hrMax: v.hrPeak, percentile: "",
+    vSpeed: "", vPace: "", stages, veq1: pts("vevo2"), veq2: pts("vevco2"),
+    vt1Time: m && m.vt1.time != null ? Math.round((hmsToSec(m.vt1.time) / 60) * 100) / 100 : "", vt2Time: m && m.vt2.time != null ? Math.round((hmsToSec(m.vt2.time) / 60) * 100) / 100 : "",
+    vt: m ? [vtRow(m.vt1), vtRow(m.vt2)] : [vtRow(null), vtRow(null)], lt: [blankLt, { ...blankLt }], bloodLactate: false,
+    protocol: raw.meta["Protocol"] ? String(raw.meta["Protocol"]) : "", testDescription: "", sport: "", notes: "",
+  };
+}
+function RawDataPanel({ raw, pick, setPick, confirmed, setConfirmed }) {
+  const box = { border: `1px solid ${C.line}`, borderRadius: 12, background: C.surface, padding: "16px 18px", marginTop: 14 };
+  const h = { fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: C.inkMuted, margin: "14px 0 6px" };
+  const Opt = ({ name, val, cur, set, label, value }) => (
+    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "4px 0", cursor: "pointer", color: C.ink }}>
+      <input type="radio" name={name} checked={cur === val} onChange={() => set(val)} />
+      <span style={{ flex: 1 }}>{label}</span><b style={{ fontVariantNumeric: "tabular-nums" }}>{value}</b>
+    </label>
+  );
+  const cand = [
+    ["sheet", "As reported on the sheet's Results tab", raw.cand.sheet],
+    ["b15", "Best single 15 s reading", raw.cand.b15], ["b30", "Best 30 s average", raw.cand.b30],
+    ["b60", "Best 60 s average", raw.cand.b60], ["b120", "Best 120 s average", raw.cand.b120],
+  ].filter((x) => x[2]);
+  const m = raw.marks;
+  const clk = (s) => (s == null ? "–" : typeof s === "number" ? secToClock(Math.round(s * 86400)) : String(s).replace(/^00:/, "").replace(/^0/, ""));
+  return (
+    <div className="no-print" style={box}>
+      <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Raw data check</div>
+      <p style={{ fontSize: 12.5, color: C.inkMuted, margin: "4px 0 0", lineHeight: 1.5 }}>
+        Read {raw.rows.length} rows (one every {raw.stepSec} s). Protocol: {raw.meta["Protocol"] || "–"} · Ergometer: {raw.meta["Ergometer"] || "–"} · Sheet says maximal effort: {raw.meta["Maximal Effort"] || "–"}.
+        Nothing below was guessed: where the sheet allows more than one answer, pick the one you want.
+      </p>
+      <div style={h}>VO2 peak (ml/kg/min)</div>
+      {cand.map((x) => <Opt key={x[0]} name="vo2pick" val={x[0]} cur={pick.vo2} set={(v) => setPick({ ...pick, vo2: v })} label={x[1]} value={(Math.round(x[2].v * 10) / 10).toFixed(1)} />)}
+      <div style={{ fontSize: 11.5, color: C.inkFaint }}>Or choose any option and then type your own value in the VO2 max field below.</div>
+      <div style={h}>Peak heart rate (bpm)</div>
+      <Opt name="hrpick" val="exercise" cur={pick.hr} set={(v) => setPick({ ...pick, hr: v })} label="Highest during exercise" value={raw.hrExercise} />
+      <Opt name="hrpick" val="all" cur={pick.hr} set={(v) => setPick({ ...pick, hr: v })} label="Highest anywhere (includes recovery)" value={raw.hrAll} />
+      <div style={h}>Thresholds marked on the sheet</div>
+      {m ? (
+        <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.7 }}>
+          {[["Threshold 1", m.vt1], ["Threshold 2", m.vt2]].map((x) => (
+            <div key={x[0]}><b>{x[0]}</b> at {clk(x[1].time)} · {x[1].vo2kg} ml/kg/min · {x[1].hr} bpm</div>
+          ))}
+          <div style={{ fontSize: 11.5, color: C.inkFaint }}>These are the points set in the cart software. Check them against the charts before you rely on them.</div>
+        </div>
+      ) : <div style={{ fontSize: 13, color: C.coral }}>No Results tab found, so thresholds were left blank.</div>}
+      {raw.ex.some((r) => r.power > 0) ? (
+      <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, marginTop: 10, cursor: "pointer", color: C.ink }}>
+        <input type="checkbox" checked={!!pick.power} onChange={(e) => setPick({ ...pick, power: e.target.checked })} style={{ marginTop: 3 }} />
+        <span>Use the sheet's power values ({m && m.max.vo2kg != null ? `max ${Math.max.apply(null, raw.ex.map((r) => r.power || 0))} W` : ""}). Leave unticked if the ergometer wasn't interfaced and you recorded the real workload yourself.</span>
+      </label>
+      ) : null}
+      <div style={h}>Not in the sheet (left blank for you)</div>
+      <div style={{ fontSize: 12.5, color: C.inkMuted, lineHeight: 1.55 }}>
+        Exercise history · blood pressure · symptoms · recommendations and training zones · % of predicted VO2 (needs your equation) · VO2 plateau · {raw.recSeconds < 180 ? `3-minute HR recovery (recovery only lasts ${secToClock(raw.recSeconds)})` : "HR recovery at 3 minutes"}. Effort, reason for stopping and symptoms stay with the physiologist.
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 600, marginTop: 14, cursor: "pointer", color: C.ink }}>
+        <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+        I've checked these choices against the cart's charts
+      </label>
+    </div>
+  );
+}
+
+function summaryTemplate({ client, results, category }) {
+  const first = (client.name || "").split(" ")[0] || "The client";
+  return `${first}'s result of ${results.vo2max} ml/kg/min places them in the ${results.percentileText || ordinal(results.percentile)} percentile for their age and sex — ${article(category.label)} ${category.label.toLowerCase()} level of aerobic fitness.\n\n[Add your observations: effort quality, symptoms, how the test progressed, anything notable about their thresholds or recovery.]\n\n[Add your interpretation and guidance for the client.]`;
+}
+
+/* ---------- PDF import ---------- */
+async function extractPdfLines(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const allLines = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const items = content.items.map((it) => ({ text: it.str, x: it.transform[4], y: it.transform[5] }));
+    const buckets = {};
+    items.forEach((it) => {
+      const key = Math.round(it.y / 3) * 3;
+      (buckets[key] = buckets[key] || []).push(it);
+    });
+    const keys = Object.keys(buckets).map(Number).sort((a, b) => b - a);
+    const used = new Set();
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (used.has(k)) continue;
+      const row = buckets[k].slice().sort((a, b) => a.x - b.x);
+      let text = row.map((w) => w.text).join(" ");
+      if (i + 1 < keys.length && k - keys[i + 1] <= 8) {
+        const nxt = buckets[keys[i + 1]];
+        const totalLen = nxt.reduce((s, w) => s + w.text.length, 0);
+        if (totalLen <= 8) {
+          text += " " + nxt.slice().sort((a, b) => a.x - b.x).map((w) => w.text).join(" ");
+          used.add(keys[i + 1]);
+        }
+      }
+      allLines.push(text);
+    }
+  }
+  return allLines.join("\n");
+}
+function cleanPdfText(full) {
+  return full
+    .replace(/17 Antares Place,?\s*Rosedale,?\s*Auckland/gi, "")
+    .replace(/www\.autmillennium\.org\.nz/gi, "")
+    .replace(/P\s*ag\s*e\s*\|\s*\d+/gi, "")
+    .replace(/[ \t]+/g, " ");
+}
+function parseReportText(full) {
+  const grab = (pat) => full.match(pat);
+  const grabAll = (pat) => [...full.matchAll(pat)];
+  const nameM = grab(/Name:\s*([A-Za-z .'-]+)/i);
+  const dobM = grab(/DOB:\s*([0-9/]+)/i);
+  const repM = grab(/Report date:\s*(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})/i);
+  const tdM = grab(/\bDate:\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})/i);
+  const reportDate = repM ? `${Number(repM[1])} ${repM[2].charAt(0).toUpperCase() + repM[2].slice(1).toLowerCase()} ${repM[3]}` : null;
+  const testDate = tdM && Number(tdM[2]) >= 1 && Number(tdM[2]) <= 12
+    ? `${Number(tdM[1])} ${MONTHS[Number(tdM[2]) - 1]} ${tdM[3].length === 2 ? "20" + tdM[3] : tdM[3]}` : null;
+  const weightM = grab(/Body Mass\s*([\d.]+)\s*kg/i);
+  const heightM = grab(/Stature\s*([\d.]+)\s*cm/i);
+  const vo2M = grab(/VO\s*([\d.]+)\s*ml\.kg\.min\s*\((\d+)\w*\s*percentile\)/i);
+  const hrPeakM = grab(/Heart Rate\s*(?:peak\s*)?(\d+)\s*bpm\s*\((\d+)%\s*of predicted/i);
+  const maxWorkM = grab(/Max Workload\s*([\d.]+)\s*km\/h at\s*([\d.]+)%\s*incline/i);
+  const rpeM = grab(/Rating of Perceived Exertion \(RPE\)\s*(\d+)/i);
+  const getAll = grabAll(/Gas Exchange Threshold\s*([\d.]+)\s*ml\.kg\.min\s*\((\d+)%/gi);
+  const rerM = grab(/Respiratory exchange ratio\s*([\d.]+)/i);
+  const hrRec1M = grab(/HR Recovery\s*1\s*min\s*(\d+)\s*bpm/i) || grab(/HR Recovery\s*(\d+)\s*bpm\s*1\s*min/i);
+  const hrRec3M = grab(/HR Recovery\s*3\s*min\s*(\d+)\s*bpm/i) || grab(/HR Recovery\s*(\d+)\s*bpm\s*3\s*min/i);
+  const durationM = grab(/completed\s*(\d+)\s*minutes/i);
+  const testMode = (/cycle|bike|cycling/i.test(full) && !/treadmill/i.test(full)) ? "bike" : "treadmill";
+  const historyM = full.match(/Exercise history and goals\s*([\s\S]*?)\n\s*(?:Testing|Table 1)/i);
+  const summaryM = full.match(/\n\s*Summary\s*([\s\S]*?)•/i);
+  return {
+    name: nameM ? nameM[1].trim() : null,
+    dob: dobM ? dobM[1] : null,
+    reportDate,
+    testDate,
+    weight: weightM ? weightM[1] : null,
+    height: heightM ? heightM[1] : null,
+    vo2max: vo2M ? vo2M[1] : null,
+    percentile: vo2M ? vo2M[2] : null,
+    hrPeak: hrPeakM ? hrPeakM[1] : null,
+    hrPredictedPct: hrPeakM ? hrPeakM[2] : null,
+    maxSpeed: maxWorkM ? maxWorkM[1] : null,
+    maxIncline: maxWorkM ? maxWorkM[2] : null,
+    rpe: rpeM ? rpeM[1] : null,
+    get1: getAll[0] ? getAll[0][1] : null,
+    get1Pct: getAll[0] ? getAll[0][2] : null,
+    get2: getAll[1] ? getAll[1][1] : null,
+    get2Pct: getAll[1] ? getAll[1][2] : null,
+    rer: rerM ? rerM[1] : null,
+    hrRecovery1: hrRec1M ? hrRec1M[1] : null,
+    hrRecovery3: hrRec3M ? hrRec3M[1] : null,
+    testDuration: durationM ? durationM[1] : null,
+    testMode,
+    history: historyM ? historyM[1].replace(/\s+/g, " ").trim() : null,
+    summary: summaryM ? summaryM[1].replace(/\s*\n\s*/g, " ").trim() : null,
+  };
+}
+function parseStages(full) {
+  const lines = full.split("\n").map((l) => l.trim());
+  const stages = [];
+  let t = 0;
+  let pendingLabel = null;
+  for (const line of lines) {
+    if (/^(Stage\s*\d+|Recovery)$/i.test(line)) { pendingLabel = line; continue; }
+    const isRest = /^Rest\b/i.test(line);
+    const isLabeledData = pendingLabel && /\d/.test(line);
+    if (isRest || isLabeledData) {
+      const nums = line.match(/-?\d+\.?\d*/g) || [];
+      let vo2Idx = -1;
+      for (let i = 0; i < nums.length; i++) {
+        if (nums[i].includes(".") && parseFloat(nums[i]) < 90) { vo2Idx = i; break; }
+      }
+      if (vo2Idx > 0) {
+        const vo2 = parseFloat(nums[vo2Idx]);
+        const hr = parseInt(nums[vo2Idx - 1], 10);
+        if (!Number.isNaN(hr) && !Number.isNaN(vo2)) {
+          stages.push({ t, hr, vo2, speed: (isRest ? 0 : (parseFloat(nums[0]) || 0)), label: pendingLabel || "Rest" });
+          t += 2;
+        }
+      }
+      pendingLabel = null;
+    }
+  }
+  return stages.length ? stages : null;
+}
+function parseRecommendations(full) {
+  const idx = full.search(/each week:/i);
+  if (idx === -1) return null;
+  const tail = full.slice(idx);
+  const stopIdx = tail.search(/Please let me know|Kind regards/i);
+  const block = stopIdx !== -1 ? tail.slice(0, stopIdx) : tail;
+  const blocks = [...block.matchAll(/•\s*([^\n•]+?)\s*\n?((?:\s*o\s+[^\n•]+)+)/gi)];
+  if (!blocks.length) return null;
+  return blocks.map((b) => ({
+    exercise: b[1].trim(),
+    detail: b[2].replace(/\s*o\s+/g, " | ").replace(/^\s*\|\s*/, "").replace(/\s+/g, " ").trim(),
+  }));
+}
+
+/* ---------- ventilatory equivalents scatter: sample data (made-up, not a real athlete) ---------- */
+function synthVentSample() {
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const a = [], b = [];
+  for (let i = 0; i < 107; i++) {
+    const t = i * 0.255;
+    const f = t / 27.3;
+    const vo = 24 + 7 * Math.max(0, f - 0.55) / 0.45 + 2.5 * Math.min(1, f / 0.5) + (rnd() - 0.5) * 5;
+    const vc = 32 + 4.5 * Math.max(0, f - 0.75) / 0.25 - 1.2 * Math.min(1, f / 0.5) + (rnd() - 0.5) * 3.6;
+    a.push([Math.round(t * 100) / 100, Math.round(vo * 10) / 10]);
+    b.push([Math.round(t * 100) / 100, Math.round(vc * 10) / 10]);
+  }
+  return { veq1: a, veq2: b };
+}
+function parseClock(str) {
+  const t = String(str == null ? "" : str).trim();
+  if (!t) return null;
+  const m = t.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
+  if (m) return m[3] != null ? (+m[1]) * 60 + (+m[2]) + (+m[3]) / 60 : (+m[1]) + (+m[2]) / 60;
+  const v = parseFloat(t.replace(",", "."));
+  return Number.isFinite(v) ? v : null;
+}
+function fmtClock(min) {
+  const s = Math.round(min * 60);
+  return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+function parseVentPaste(text) {
+  const a = [], b = [];
+  String(text || "").split(/\r?\n/).forEach((line) => {
+    const parts = line.trim().split(/[\t,; ]+/).filter(Boolean);
+    if (parts.length < 2) return;
+    const t = parseClock(parts[0]);
+    const v1 = parseFloat(parts[1]);
+    const v2 = parts.length > 2 ? parseFloat(parts[2]) : NaN;
+    if (t === null) return;
+    if (Number.isFinite(v1)) a.push([Math.round(t * 100) / 100, v1]);
+    if (Number.isFinite(v2)) b.push([Math.round(t * 100) / 100, v2]);
+  });
+  return { veq1: a, veq2: b };
+}
+
+/* Reads the coloured dot markers straight from the page's drawing instructions (exact, no overlap problems) */
+async function vectorDots(page, vp) {
+  const OPS = pdfjsLib.OPS;
+  const fillOps = [OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke];
+  const ol = await page.getOperatorList();
+  let ctm = [1, 0, 0, 1, 0, 0];
+  const stack = [];
+  let rgb = [0, 0, 0];
+  let pending = null;
+  const out = { orange: [], blue: [] };
+  const emit = (bb) => {
+    const wd = bb[2] - bb[0], ht = bb[3] - bb[1];
+    if (!(wd > 0.5 && wd < 9 && ht > 0.5 && ht < 9)) return;
+    const m = pdfjsLib.Util.transform(vp.transform, ctm);
+    const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
+    const pt = [m[0] * cx + m[2] * cy + m[4], m[1] * cx + m[3] * cy + m[5]];
+    const r = rgb[0], g = rgb[1], b = rgb[2];
+    if (r > 200 && g > 90 && g < 165 && b < 110) out.orange.push(pt);
+    else if (b > 170 && r < 150 && g > 110 && g < 195) out.blue.push(pt);
+  };
+  for (let i = 0; i < ol.fnArray.length; i++) {
+    const fn = ol.fnArray[i], a = ol.argsArray[i];
+    if (fn === OPS.save) stack.push(ctm.slice());
+    else if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); }
+    else if (fn === OPS.transform) ctm = pdfjsLib.Util.transform(ctm, a);
+    else if (fn === OPS.setFillRGBColor) {
+      if (typeof a[0] === "string") { const h = a[0].replace("#", ""); rgb = [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+      else rgb = [a[0], a[1], a[2]];
+    } else if (fn === OPS.constructPath) {
+      if (typeof a[0] === "number") {
+        const mm = a[2];
+        if (mm && fillOps.indexOf(a[0]) >= 0) emit([mm[0], mm[1], mm[2], mm[3]]);
+        pending = null;
+      } else {
+        const o = a[0], c = a[1];
+        const xs = [], ys = [];
+        let k = 0;
+        const add = (x, y) => { xs.push(x); ys.push(y); };
+        for (let q = 0; q < o.length; q++) {
+          const op = o[q];
+          if (op === OPS.moveTo || op === OPS.lineTo) { add(c[k], c[k + 1]); k += 2; }
+          else if (op === OPS.curveTo) { add(c[k], c[k + 1]); add(c[k + 2], c[k + 3]); add(c[k + 4], c[k + 5]); k += 6; }
+          else if (op === OPS.curveTo2 || op === OPS.curveTo3) { add(c[k], c[k + 1]); add(c[k + 2], c[k + 3]); k += 4; }
+          else if (op === OPS.rectangle) { add(c[k], c[k + 1]); add(c[k] + c[k + 2], c[k + 1] + c[k + 3]); k += 4; }
+        }
+        pending = xs.length ? [Math.min.apply(null, xs), Math.min.apply(null, ys), Math.max.apply(null, xs), Math.max.apply(null, ys)] : null;
+      }
+    } else if (fillOps.indexOf(fn) >= 0 && pending) { emit(pending); pending = null; }
+  }
+  return out;
+}
+
+/* Reads the dots of the "ventilatory equivalent" chart out of an imported PDF by looking at the rendered chart */
+async function extractVentEquivalents(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      if (!/Ventilatory\s*Equivalent/i.test(content.items.map((i) => i.str).join(" "))) continue;
+      const scale = 3;
+      const vp = page.getViewport({ scale: scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      const labs = content.items.filter((i) => i.str && i.str.trim()).map((i) => {
+        const t = pdfjsLib.Util.transform(vp.transform, i.transform);
+        const h = Math.abs(t[3]) || Math.hypot(t[2], t[3]);
+        return { str: i.str.trim(), cx: t[4] + (i.width * scale) / 2, cy: t[5] - 0.35 * h, h: h };
+      });
+      const xl = labs.filter((l) => /^\d{1,2}:\d{2}$/.test(l.str));
+      if (xl.length < 3) continue;
+      let xRow = [];
+      xl.forEach((l) => { const same = xl.filter((o) => Math.abs(o.cy - l.cy) < 4); if (same.length > xRow.length) xRow = same; });
+      if (xRow.length < 4) continue;
+      const rowY = xRow.reduce((m, l) => m + l.cy, 0) / xRow.length;
+      const xMin = xRow.reduce((m, l) => (l.cx < m.cx ? l : m), xRow[0]);
+      const xMax = xRow.reduce((m, l) => (l.cx > m.cx ? l : m), xRow[0]);
+      const yCand = labs.filter((l) => /^\d+(\.\d+)?$/.test(l.str) && l.cy < rowY - 6 && l.cx < xMin.cx - 4);
+      if (yCand.length < 2) continue;
+      const colX = yCand.reduce((m, l) => Math.max(m, l.cx), 0);
+      const yl = yCand.filter((l) => Math.abs(l.cx - colX) < 14);
+      if (yl.length < 2) continue;
+      const yLo = yl.reduce((m, l) => (parseFloat(l.str) < parseFloat(m.str) ? l : m), yl[0]);
+      const yHi = yl.reduce((m, l) => (parseFloat(l.str) > parseFloat(m.str) ? l : m), yl[0]);
+      const tOf = (px) => parseClock(xMin.str) + ((px - xMin.cx) / (xMax.cx - xMin.cx)) * (parseClock(xMax.str) - parseClock(xMin.str));
+      const vOf = (py) => parseFloat(yLo.str) + ((py - yLo.cy) / (yHi.cy - yLo.cy)) * (parseFloat(yHi.str) - parseFloat(yLo.str));
+      const x0 = Math.floor(xMin.cx - 14), x1 = Math.ceil(xMax.cx + 14);
+      const y0 = Math.floor(yHi.cy - 14), y1 = Math.ceil(yLo.cy + 14);
+      const w = x1 - x0, hh = y1 - y0;
+      const img = ctx.getImageData(x0, y0, w, hh).data;
+      const cls = new Uint8Array(w * hh);
+      for (let i = 0; i < w * hh; i++) {
+        const r = img[i * 4], g = img[i * 4 + 1], bl = img[i * 4 + 2];
+        if (r > 200 && g > 90 && g < 165 && bl < 110) cls[i] = 1;
+        else if (bl > 170 && r < 150 && g > 110 && g < 195) cls[i] = 2;
+      }
+      const seen = new Uint8Array(w * hh);
+      const blobs = { 1: [], 2: [] };
+      for (let i = 0; i < w * hh; i++) {
+        if (!cls[i] || seen[i]) continue;
+        const k = cls[i]; const stack = [i]; seen[i] = 1;
+        let n = 0, sx = 0, sy = 0, minx = w, maxx = 0;
+        while (stack.length) {
+          const q = stack.pop(); const qx = q % w, qy = (q / w) | 0;
+          n++; sx += qx; sy += qy; if (qx < minx) minx = qx; if (qx > maxx) maxx = qx;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const nx = qx + dx, ny = qy + dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= hh) continue;
+            const ni = ny * w + nx;
+            if (cls[ni] === k && !seen[ni]) { seen[ni] = 1; stack.push(ni); }
+          }
+        }
+        if (n >= 8) blobs[k].push({ n: n, cx: sx / n + x0, cy: sy / n + y0, minx: minx + x0, maxx: maxx + x0 });
+      }
+      const toPts = (arr) => {
+        if (!arr.length) return [];
+        const areas = arr.map((b) => b.n).sort((a, b) => a - b);
+        const med = areas[Math.floor(areas.length / 2)];
+        const out = [];
+        arr.forEach((b) => {
+          const k = Math.max(1, Math.min(4, Math.round(b.n / med)));
+          for (let j = 0; j < k; j++) {
+            const px = k === 1 ? b.cx : b.minx + ((j + 0.5) / k) * (b.maxx - b.minx);
+            out.push([Math.round(tOf(px) * 100) / 100, Math.round(vOf(b.cy) * 10) / 10]);
+          }
+        });
+        return out.sort((a, b) => a[0] - b[0]);
+      };
+      let veq1 = toPts(blobs[2]), veq2 = toPts(blobs[1]);
+      try {
+        const vd = await vectorDots(page, vp);
+        const inside = (pt) => pt[0] >= x0 - 20 && pt[0] <= x1 + 20 && pt[1] >= y0 - 20 && pt[1] <= y1 && pt[1] < rowY - 10;
+        const conv = (arr) => arr.filter(inside).map((pt) => [Math.round(tOf(pt[0]) * 100) / 100, Math.round(vOf(pt[1]) * 10) / 10]).sort((m, n) => m[0] - n[0]);
+        const vb = conv(vd.blue), vo = conv(vd.orange);
+        if (vb.length >= 10 || vo.length >= 10) { veq1 = vb; veq2 = vo; }
+      } catch (err2) { /* fall back to the image-based reading */ }
+      if (veq1.length < 10 && veq2.length < 10) continue;
+      // vertical threshold lines: dark columns spanning most of the plot height
+      const cols = [];
+      const top = Math.max(0, Math.floor(yHi.cy - y0)), bot = Math.min(hh, Math.ceil(yLo.cy - y0));
+      for (let cx = 0; cx < w; cx++) {
+        let dark = 0;
+        for (let cy = top; cy < bot; cy++) { const o = (cy * w + cx) * 4; if (img[o] < 70 && img[o + 1] < 70 && img[o + 2] < 70) dark++; }
+        if (dark > (bot - top) * 0.6) cols.push(cx);
+      }
+      const lines = [];
+      cols.forEach((c) => { const last = lines[lines.length - 1]; if (last && c - last.end <= 2) { last.end = c; } else lines.push({ start: c, end: c }); });
+      const lt = lines.map((l) => Math.round(tOf((l.start + l.end) / 2 + x0) * 100) / 100).sort((a, b) => a - b);
+      return { veq1: veq1, veq2: veq2, vt1Time: lt.length >= 2 ? lt[0] : null, vt2Time: lt.length >= 2 ? lt[1] : null };
+    }
+  } catch (err) { /* the chart is optional: ignore any failure */ }
+  return null;
+}
+
+/* ---------- performance report: defaults (placeholder data only) ---------- */
+const defaultPerf = {
+  ...synthVentSample(), vt1Time: 12.7, vt2Time: 19.3,
+  age: "32", sport: "Runner",
+  testDescription: "Incremental treadmill test to determine maximal oxygen consumption (VO2 max), ventilatory thresholds (VT1 & VT2), and lactate thresholds (LT1 & LT2).",
+  protocol: "Multiple 3-minute stages (1km.h⁻¹ increase per stage) with 30-second rest between stages until lactate threshold determination (LT2), on a motorised treadmill with oxygen uptake (VO2), heart rate (HR) and blood lactate (earlobe) measured throughout.",
+  vo2Ml: "52.1", vo2L: "3.81", percentile: "", hrMax: "191", vSpeed: "17", vPace: "3:32",
+  vt: [
+    { vo2: "41.8", vo2Plus: "+4.9", pctVo2: "80.2", hr: "154", pctHr: "80.6", pace: "4:30" },
+    { vo2: "49.1", vo2Plus: "+3.2", pctVo2: "94.2", hr: "173", pctHr: "90.6", pace: "3:54" },
+  ],
+  lt: [
+    { vo2: "40.6", pctVo2: "77.9", hr: "151", pctHr: "79.1", pace: "4:37" },
+    { vo2: "49.4", pctVo2: "94.8", hr: "175", pctHr: "91.6", pace: "3:52" },
+  ],
+  zones: [
+    { zone: "Zone 1", name: "Recovery", pace: ">4:37", hr: "<160", effort: "Easy", duration: ">3hr", alsoLow: "Recovery", alsoHigh: "Recovery" },
+    { zone: "Zone 2", name: "Extensive aerobic", pace: "4:37 – 4:17", hr: "160 – 170", effort: "Comfortable", duration: "1–3hr", alsoLow: "Threshold 1 · Aerobic base", alsoHigh: "Aerobic base · Threshold 1" },
+    { zone: "Zone 3", name: "Intensive aerobic", pace: "4:16 – 4:00", hr: "171 – 175", effort: "Uncomfortable", duration: "30–90min", alsoLow: "Aerobic base", alsoHigh: "Threshold 2" },
+    { zone: "Zone 4", name: "Threshold", pace: "3:59 – 3:45", hr: "176 – 185", effort: "Stressful", duration: "8 min – 2 min", durLow: "8 min", durHigh: "2 min", exLow: "3 × 8 min, with 2 min rest between", exHigh: "6 × 2 min, with 1 min rest between", alsoLow: "Threshold 2 · VO2max", alsoHigh: "Threshold 2" },
+    { zone: "Zone 5", name: "Maximal", pace: "<3:45", hr: ">185", effort: "Very stressful", duration: "1 min – 6 sec", durLow: "1 min", durHigh: "6 sec", exLow: "5 × 1 min, with 3 min rest between", exHigh: "10 × 6 sec sprints, with full recovery between", alsoLow: "VO2max", alsoHigh: "VO2max · Sprint power" },
+  ],
+  stages: [
+    { speed: "10", pace: "6:00", hr: "127", hrPct: "66.5", vo2: "31.2", vo2L: "2.28", vo2Pct: "59.9", rpe: "", lactate: "1.3", ve: "58", rer: "0.81", rf: "28", note: "" },
+    { speed: "11", pace: "5:27", hr: "135", hrPct: "70.7", vo2: "34.0", vo2L: "2.49", vo2Pct: "65.3", rpe: "", lactate: "1.4", ve: "63", rer: "0.83", rf: "30", note: "" },
+    { speed: "12", pace: "5:00", hr: "143", hrPct: "74.9", vo2: "37.1", vo2L: "2.71", vo2Pct: "71.2", rpe: "", lactate: "1.5", ve: "70", rer: "0.84", rf: "32", note: "" },
+    { speed: "13", pace: "4:37", hr: "151", hrPct: "79.1", vo2: "40.6", vo2L: "2.97", vo2Pct: "77.9", rpe: "", lactate: "1.8", ve: "79", rer: "0.86", rf: "35", note: "" },
+    { speed: "14", pace: "4:17", hr: "160", hrPct: "83.8", vo2: "44.3", vo2L: "3.24", vo2Pct: "85.0", rpe: "", lactate: "2.5", ve: "91", rer: "0.89", rf: "40", note: "" },
+    { speed: "15", pace: "4:00", hr: "169", hrPct: "88.5", vo2: "48.0", vo2L: "3.51", vo2Pct: "92.1", rpe: "", lactate: "3.6", ve: "106", rer: "0.93", rf: "45", note: "" },
+    { speed: "16", pace: "3:45", hr: "180", hrPct: "94.2", vo2: "50.9", vo2L: "3.72", vo2Pct: "97.7", rpe: "16", lactate: "5.9", ve: "126", rer: "0.98", rf: "52", note: "" },
+    { speed: "17", pace: "3:32", hr: "191", hrPct: "100.0", vo2: "52.1", vo2L: "3.81", vo2Pct: "100.0", rpe: "", lactate: "", ve: "150", rer: "1.05", rf: "60", note: "VO2max protocol, 2-min stages" },
+  ],
+  notes: "",
+};
+
+/* ---------- performance report: helpers ---------- */
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function num(v) {
+  const n = parseFloat(String(v == null ? "" : v).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+// "4:17" (min/km) -> 14.0 (km/h); a plain number (e.g. watts) is returned as-is
+function paceToX(p) {
+  const s = String(p == null ? "" : p).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) {
+    const sec = Number(m[1]) * 60 + Number(m[2]);
+    return sec > 0 ? 3600 / sec : null;
+  }
+  return num(s);
+}
+function niceScale(min, max, target) {
+  const span = Math.max(max - min, 1e-9);
+  const raw = span / target;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / pow;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow;
+  const lo = Math.floor(min / step + 1e-9) * step;
+  const hi = Math.ceil(max / step - 1e-9) * step;
+  const ticks = [];
+  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v * 1000) / 1000);
+  return { lo, hi, ticks };
+}
+
+/* ---------- performance report: PDF detection + parsing ---------- */
+function detectReportType(full) {
+  const performanceSignals = [/Athlete Details/i, /Sport\s*\/\s*Event/i, /Ventilatory Thresholds/i, /Lactate Thresholds/i,
+    /VO\s*2\s*Max Assessment Report/i, /Sports Performance Clinics/i, /\bVT1\b/, /\bLT1\b/];
+  const clinicalSignals = [/Gas Exchange Threshold/i, /percentile/i, /Exercise history and goals/i, /Stature/i, /predicted/i];
+  const p = performanceSignals.filter((r) => r.test(full)).length;
+  const c = clinicalSignals.filter((r) => r.test(full)).length;
+  return p >= 3 && p > c ? "performance" : "clinical";
+}
+function parsePerformanceReport(full) {
+  const text = full.replace(/VO\s+2/g, "VO2");
+  const grab = (re) => { const m = text.match(re); return m ? m[1].trim() : null; };
+  const fixUnits = (s) => (s ? s.replace(/VO\s+2/g, "VO2").replace(/km\.h(?![\w\u207b\u00b9\-])/g, "km.h\u207b\u00b9") : s);
+  const tidy = (s) => (s ? s.replace(/\s*\n\s*/g, " ").replace(/\s+/g, " ").trim() : null);
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // athlete details
+  const dateM = text.match(/Date:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i);
+  const testDate = dateM && Number(dateM[2]) >= 1 && Number(dateM[2]) <= 12
+    ? `${Number(dateM[1])} ${MONTHS[Number(dateM[2]) - 1]} ${dateM[3]}` : null;
+  const client = {
+    name: grab(/Name:\s*([^\n]+)/i),
+    sex: grab(/(?:Gender|Sex):\s*([A-Za-z]+)/i),
+    height: grab(/Height\s*\(cm\):\s*([\d.]+)/i),
+    weight: grab(/Body Mass\s*\(kg\):\s*([\d.]+)/i),
+    tester: grab(/Physiologist:\s*([^\n]+)/i),
+    testDate,
+  };
+  const testMode = /treadmill/i.test(text) ? "treadmill" : (/cycle|bike|cycling|ergometer/i.test(text) ? "bike" : "treadmill");
+
+  // stage-by-stage table
+  const rowRe = /^(\d{1,2}(?:\.\d+)?)\s+(\d{1,2}:\d{2})\s+(\d{2,3})\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(-|\d+)\s+(-|[\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)$/;
+  const stages = [];
+  let pendingNote = "";
+  lines.forEach((line) => {
+    if (/VO2\s*max protocol/i.test(line)) { pendingNote = "VO2max protocol, 2-min stages"; return; }
+    const m = line.match(rowRe);
+    if (m) {
+      stages.push({
+        speed: m[1], pace: m[2], hr: m[3], hrPct: m[4], vo2: m[5], vo2L: m[6], vo2Pct: m[7],
+        rpe: m[8] === "-" ? "" : m[8], lactate: m[9] === "-" ? "" : m[9], ve: m[10], rer: m[11], rf: m[12], note: pendingNote,
+      });
+      pendingNote = "";
+    }
+  });
+  const last = stages.length ? stages[stages.length - 1] : null;
+
+  // VO2 max row: "56.4 4.43 188 3:20"
+  let vo2Ml = null, vo2L = null, hrMax = null, vPace = null;
+  lines.forEach((line) => {
+    const m = line.match(/^([\d.]+)\s+([\d.]+)\s+(\d{2,3})\s+(\d{1,2}:\d{2})$/);
+    if (m && !vo2Ml) { vo2Ml = m[1]; vo2L = m[2]; hrMax = m[3]; vPace = m[4]; }
+  });
+  if (!vo2Ml && last) { vo2Ml = last.vo2; vo2L = last.vo2L; hrMax = last.hr; vPace = last.pace; }
+  const vSpeedX = vPace ? paceToX(vPace) : null;
+  const vSpeed = last ? last.speed : (vSpeedX ? String(Math.round(vSpeedX * 10) / 10) : null);
+
+  // threshold rows (VT: "47.6 (+5.4) 84.3 167 88.8 4:17", LT: "46.6 82.6 162 86.2 4:26")
+  const thrRe = /(?:^|\s)([\d.]+)(?:\s*\(\s*([+\-±]?\s*[\d.]+)\s*\))?\s+([\d.]+)\s+(\d{2,3})\s+([\d.]+)\s+([2-9]:\d{2})(?=\s|$)/g;
+  const section = (startRe, endRe) => {
+    const s = text.search(startRe);
+    if (s === -1) return "";
+    const rest = text.slice(s + 1);
+    const e = rest.search(endRe);
+    return e === -1 ? rest : rest.slice(0, e);
+  };
+  const vtSeg = section(/Ventilatory Thresholds\s*\(VT1\s*\/\s*VT2\)/i, /Lactate Thresholds\s*\(LT1/i);
+  const ltSeg = section(/Lactate Thresholds\s*\(LT1\s*\/\s*LT2\)/i, /Training Zones\s*(?:\n|$)/i);
+  const vt = [...vtSeg.matchAll(thrRe)].slice(0, 2).map((m) => ({
+    vo2: m[1], vo2Plus: m[2] ? m[2].replace(/\s+/g, "") : "", pctVo2: m[3], hr: m[4], pctHr: m[5], pace: m[6],
+  }));
+  const lt = [...ltSeg.matchAll(thrRe)].slice(0, 2).map((m) => ({
+    vo2: m[1], pctVo2: m[3], hr: m[4], pctHr: m[5], pace: m[6],
+  }));
+
+  // training zones. Descriptions can land on separate lines, so match them back by order.
+  const zStart = text.search(/(?:^|\n)\s*Training Zones\s*(?:\n|$)/i);
+  const zoneRows = [];
+  const orphans = [];
+  if (zStart !== -1) {
+    text.slice(zStart).split("\n").map((l) => l.trim()).filter(Boolean).forEach((line) => {
+      const m = line.match(/^Zone\s*(\d)\s+(.*)$/i);
+      if (m) zoneRows.push({ n: m[1], rest: m[2] });
+      else if (/^[A-Za-z][A-Za-z ]*$/.test(line) && line.split(" ").length <= 4
+        && !/^(Training Zone|HR range|Perceived|Critical|Exertion|duration|Description|Pace)/i.test(line)) orphans.push(line);
+    });
+  }
+  const dash = /\s*[–—-]\s*/;
+  const zones = zoneRows.map((zr) => {
+    const paceM = zr.rest.match(/([<>])?\s*(\d{1,2})\s*:\s*(\d{2})(?:\s*[–—-]\s*(\d{1,2})\s*:\s*(\d{2}))?/);
+    if (!paceM) return null;
+    const pre = zr.rest.slice(0, paceM.index).trim();
+    const after = zr.rest.slice(paceM.index + paceM[0].length);
+    const hrM = after.match(/([<>])?\s*(\d{2,3})(?:\s*[–—-]\s*(\d{2,3}))?/);
+    if (!hrM) return null;
+    const post = after.slice(hrM.index + hrM[0].length);
+    const durM = post.match(/([<>])?\s*\d+(?:\s*[–—-]\s*\d+)?\s*(?:hr|min)s?/i);
+    const effort = (durM ? post.slice(0, durM.index) : post).trim();
+    return {
+      zone: `Zone ${zr.n}`,
+      name: pre.replace(/VO\s*2/g, "VO2"),
+      pace: paceM[4] ? `${paceM[2]}:${paceM[3]} – ${paceM[4]}:${paceM[5]}` : `${paceM[1] || ""}${paceM[2]}:${paceM[3]}`,
+      hr: hrM[3] ? `${hrM[2]} – ${hrM[3]}` : `${hrM[1] || ""}${hrM[2]}`,
+      effort,
+      duration: durM ? durM[0].replace(/\s+/g, "").replace(dash, "–") : "",
+    };
+  }).filter(Boolean);
+  let oi = 0;
+  zones.forEach((z) => { if (!z.name && oi < orphans.length) { z.name = orphans[oi]; oi++; } });
+
+  const perf = {
+    age: grab(/Age:\s*(\d{1,3})/i),
+    sport: grab(/Sport\s*\/\s*Event:\s*([^\n]+)/i),
+    testDescription: fixUnits(tidy((text.match(/Test\(s\):\s*([\s\S]*?)\n\s*Protocol:/i) || [])[1])),
+    protocol: fixUnits(tidy((text.match(/Protocol:\s*([\s\S]*?)(?=\n\s*Incremental Test Results|$)/i) || [])[1])),
+    vo2Ml, vo2L, hrMax, vSpeed, vPace,
+    vt: vt.length === 2 ? vt : null,
+    lt: lt.length === 2 ? lt : null,
+    zones: zones.length ? zones : null,
+    stages: stages.length ? stages : null,
+  };
+  return { client, perf, testMode };
+}
+
+
+
+/* ---------- shared UI bits ---------- */
+function AutoGrowTextarea({ value, onChange, placeholder, minHeight = 120, fontSize = 14.5, id }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="no-print"
+      rows={1}
+      style={{
+        width: "100%", minHeight: minHeight, fontSize: fontSize, lineHeight: 1.6, color: C.ink, background: "transparent",
+        border: `1px dashed ${C.line}`, borderRadius: 8, padding: 10, fontFamily: "inherit",
+        resize: "none", overflow: "hidden", boxSizing: "border-box",
+      }}
+    />
+  );
+}
+const Field = ({ label, children }) => (
+  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: C.inkMuted }}>
+    {label}{children}
+  </label>
+);
+const inputStyle = {
+  border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 14, color: C.ink,
+  background: C.surface, outline: "none", fontFamily: "inherit",
+};
+const sectionTitleStyle = {
+  fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700, fontSize: 15, color: C.ink, letterSpacing: "0.01em",
+};
+
+/* ---------- form ---------- */
+function ReportForm(props) {
+  const { client, setClient, results, setResults, zones, setZones, recs, setRecs, history, setHistory,
+    stages, setStages, onGenerate, onImportPdf, onImportRaw, raw, rawPick, setRawPick, rawConfirmed, setRawConfirmed, importStatus, importMessage, reportType, setReportType, perf, setPerf } = props;
+  const updateClient = (k, v) => setClient((c) => ({ ...c, [k]: v }));
+  const updateResults = (k, v) => setResults((r) => ({ ...r, [k]: v }));
+  const updateZone = (i, k, v) => setZones((z) => z.map((row, idx) => (idx === i ? { ...row, [k]: v } : row)));
+  const updateRec = (i, k, v) => setRecs((r) => r.map((row, idx) => (idx === i ? { ...row, [k]: v } : row)));
+  const updateRecField = (i, k, v) => setRecs((r) => r.map((row, idx) => {
+    if (idx !== i) return row;
+    const n = normRec(row);
+    return { ...row, sets: n.sets, reps: n.reps, perWeek: n.freq, note: n.rest, [k]: v };
+  }));
+  const addRec = () => setRecs((r) => [...r, { exercise: "", sets: "", reps: "", perWeek: "", note: "" }]);
+  const removeRec = (i) => setRecs((r) => r.filter((_, idx) => idx !== i));
+  const updateStage = (i, k, v) => setStages((s) => s.map((row, idx) => (idx === i ? { ...row, [k]: v === "" ? "" : Number(v) } : row)));
+  const addStage = () => setStages((s) => [...s, { t: "", hr: "", vo2: "", speed: "", label: "" }]);
+  const removeStage = (i) => setStages((s) => s.filter((_, idx) => idx !== i));
+  const grid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 };
+  const grid3 = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 };
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 20px 80px" }}>
+      <h1 style={{ ...sectionTitleStyle, fontSize: 24, marginBottom: 4 }}>New assessment report</h1>
+      <p style={{ color: C.inkMuted, fontSize: 14, marginTop: 0, marginBottom: 20 }}>
+        Import an existing PDF report to auto-fill the fields, or enter results manually below.
+      </p>
+
+      <section style={{ marginBottom: 20 }}>
+        <div style={sectionTitleStyle}>Test outcome</div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          {[["max", "VO2max", "The test reached a true maximum"], ["peak", "VO2peak", "The highest value reached, not a confirmed maximum"]].map(([k, l, d]) => {
+            const on = results.testOutcome === k;
+            return (
+              <label key={k} style={{ flex: 1, display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer", border: `1px solid ${on ? C.teal : C.line}`, background: on ? C.tealPale : C.surface }}>
+                <input type="checkbox" checked={on} onChange={() => setResults((r) => ({ ...r, testOutcome: on ? "" : k }))} style={{ width: 16, height: 16, marginTop: 2, accentColor: C.teal }} />
+                <span><span style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: C.ink }}>{l}</span><span style={{ display: "block", fontSize: 12, color: C.inkMuted }}>{d}</span></span>
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 6 }}>
+          Tick one. For VO2max, Zone 5 shows the maximum heart rate reached as its upper end. For VO2peak, or if neither is ticked, it shows “Max”.
+        </div>
+      </section>
+
+      <section style={{ marginBottom: 20 }}>
+        <div style={sectionTitleStyle}>Report type</div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          {[["clinical", "Clinical (health)"], ["performance", "Performance"]].map(([k, l]) => (
+            <button key={k} onClick={() => setReportType(k)} style={{
+              flex: 1, padding: "9px 0", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+              border: `1px solid ${reportType === k ? C.teal : C.line}`,
+              background: reportType === k ? C.tealPale : C.surface,
+              color: reportType === k ? C.teal : C.inkMuted,
+            }}>{l}</button>
+          ))}
+        </div>
+        <p style={{ fontSize: 12, color: C.inkFaint, margin: "6px 0 0" }}>Importing a PDF picks the type automatically; you can switch it here at any time.</p>
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <label htmlFor="pdf-upload" style={{
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8,
+          border: `1.5px dashed ${C.line}`, borderRadius: 12, padding: "26px 16px", cursor: "pointer",
+          background: C.tealPale, textAlign: "center",
+        }}>
+          <Icon name="Upload" size={22} color={C.teal} />
+          <div style={{ fontWeight: 600, fontSize: 14, color: C.ink }}>Import from an existing PDF report</div>
+          <div style={{ fontSize: 12, color: C.inkMuted }}>Click to choose a file — fields below will be auto-filled for you to review</div>
+          <input id="pdf-upload" type="file" accept="application/pdf" style={{ display: "none" }}
+            onChange={(e) => { if (e.target.files[0]) onImportPdf(e.target.files[0]); e.target.value = ""; }} />
+        </label>
+        {true ? (
+          <div style={{ marginTop: 10 }}>
+            <label htmlFor="raw-upload" style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 14px", cursor: "pointer", background: C.surface, fontSize: 13, fontWeight: 600, color: C.ink }}>
+              <Icon name="Upload" size={16} color={C.teal} /> Import raw data sheet (.xlsx) instead
+              <input id="raw-upload" type="file" accept=".xlsx" style={{ display: "none" }}
+                onChange={(e) => { if (e.target.files[0]) onImportRaw(e.target.files[0]); e.target.value = ""; }} />
+            </label>
+          </div>
+        ) : null}
+        {importStatus === "parsing" && (
+          <p style={{ fontSize: 13, color: C.inkMuted, marginTop: 8 }}>Reading file…</p>
+        )}
+        {importStatus === "done" && (
+          <p style={{ fontSize: 13, color: C.teal, marginTop: 8, fontWeight: 600 }}>{importMessage}</p>
+        )}
+        {importStatus === "error" && (
+          <p style={{ fontSize: 13, color: C.coral, marginTop: 8, fontWeight: 600 }}>{importMessage}</p>
+        )}
+        {raw ? <RawDataPanel raw={raw} pick={rawPick} setPick={setRawPick} confirmed={rawConfirmed} setConfirmed={setRawConfirmed} /> : null}
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Client details</div>
+        <div style={{ ...grid2, marginTop: 12 }}>
+          <Field label="Full name"><input style={inputStyle} value={client.name} onChange={(e) => updateClient("name", e.target.value)} /></Field>
+          <Field label="Date of birth"><input style={inputStyle} value={client.dob} onChange={(e) => updateClient("dob", e.target.value)} /></Field>
+          <Field label="Sex"><input style={inputStyle} value={client.sex} onChange={(e) => updateClient("sex", e.target.value)} /></Field>
+          <Field label="Report date"><input style={inputStyle} value={client.reportDate || ""} onChange={(e) => updateClient("reportDate", e.target.value)} /></Field>
+          <Field label="Test date"><input style={inputStyle} value={client.testDate} onChange={(e) => updateClient("testDate", e.target.value)} /></Field>
+          <Field label="Height (cm)"><input style={inputStyle} value={client.height} onChange={(e) => updateClient("height", e.target.value)} /></Field>
+          <Field label="Weight (kg)"><input style={inputStyle} value={client.weight} onChange={(e) => updateClient("weight", e.target.value)} /></Field>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <Field label="Tester name and title"><input style={inputStyle} value={client.tester} onChange={(e) => updateClient("tester", e.target.value)} /></Field>
+        </div>
+      </section>
+
+      {reportType === "performance" ? (
+        <PerformanceFormSections client={client} results={results} setResults={setResults} perf={perf} setPerf={setPerf} />
+      ) : (<React.Fragment>
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Key results</div>
+        <div style={{ marginTop: 12 }}>
+          <Field label="Test type">
+            <div style={{ display: "flex", gap: 8 }}>
+              {["treadmill", "bike"].map((mode) => (
+                <button key={mode} onClick={() => updateResults("testMode", mode)} style={{
+                  flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  border: `1px solid ${results.testMode === mode ? C.teal : C.line}`,
+                  background: results.testMode === mode ? C.tealPale : C.surface,
+                  color: results.testMode === mode ? C.teal : C.inkMuted, textTransform: "capitalize",
+                }}>{mode}</button>
+              ))}
+            </div>
+          </Field>
+        </div>
+        <div style={{ ...grid3, marginTop: 12 }}>
+          <Field label="VO2 max (ml/kg/min)"><input style={inputStyle} value={results.vo2max} onChange={(e) => updateResults("vo2max", e.target.value)} /></Field>
+          <Field label="Percentile override (blank = from tables)"><input style={inputStyle} value={results.percentile} placeholder={normHint(normLookup({ vo2: results.vo2max, sex: client.sex, age: ageAtTest(client.dob, client.testDate), mode: results.testMode }))} onChange={(e) => updateResults("percentile", e.target.value)} /></Field>
+          <Field label="Test duration (min)"><input style={inputStyle} value={results.testDuration} onChange={(e) => updateResults("testDuration", e.target.value)} /></Field>
+          <Field label="Peak heart rate (bpm)"><input style={inputStyle} value={results.hrPeak} onChange={(e) => updateResults("hrPeak", e.target.value)} /></Field>
+          <Field label="% of predicted max HR"><input style={inputStyle} value={results.hrPredictedPct} onChange={(e) => updateResults("hrPredictedPct", e.target.value)} /></Field>
+          <Field label="RPE at peak (6–20)"><input style={inputStyle} value={results.rpe} onChange={(e) => updateResults("rpe", e.target.value)} /></Field>
+          <Field label="Max speed (km/h)"><input style={inputStyle} value={results.maxSpeed} onChange={(e) => updateResults("maxSpeed", e.target.value)} /></Field>
+          <Field label="Max incline (%)"><input style={inputStyle} value={results.maxIncline} onChange={(e) => updateResults("maxIncline", e.target.value)} /></Field>
+          <Field label="RER (peak)"><input style={inputStyle} value={results.rer} onChange={(e) => updateResults("rer", e.target.value)} /></Field>
+          <Field label="Threshold 1 (ml/kg/min)"><input style={inputStyle} value={results.get1} onChange={(e) => updateResults("get1", e.target.value)} /></Field>
+          <Field label="Threshold 1 (% of peak)"><input style={inputStyle} value={results.get1Pct} onChange={(e) => updateResults("get1Pct", e.target.value)} /></Field>
+          <Field label="Threshold 2 (ml/kg/min)"><input style={inputStyle} value={results.get2} onChange={(e) => updateResults("get2", e.target.value)} /></Field>
+          <Field label="Threshold 2 (% of peak)"><input style={inputStyle} value={results.get2Pct} onChange={(e) => updateResults("get2Pct", e.target.value)} /></Field>
+          <p style={{ gridColumn: "1 / -1", fontSize: 12, color: C.inkFaint, margin: "4px 0 0" }}>Enter the exact pace (or power) and heart rate at each threshold from the analysis software. They appear on the body diagram. Peak pace is filled in from the max speed in the PDF.</p>
+          <Field label={results.testMode === "bike" ? "Threshold 1 power (W)" : "Threshold 1 pace (min/km)"}><input style={inputStyle} value={results.get1Pace || ""} onChange={(e) => updateResults("get1Pace", e.target.value)} /></Field>
+          <Field label="Threshold 1 heart rate (bpm)"><input style={inputStyle} value={results.get1Hr || ""} onChange={(e) => updateResults("get1Hr", e.target.value)} /></Field>
+          <Field label={results.testMode === "bike" ? "Threshold 2 power (W)" : "Threshold 2 pace (min/km)"}><input style={inputStyle} value={results.get2Pace || ""} onChange={(e) => updateResults("get2Pace", e.target.value)} /></Field>
+          <Field label="Threshold 2 heart rate (bpm)"><input style={inputStyle} value={results.get2Hr || ""} onChange={(e) => updateResults("get2Hr", e.target.value)} /></Field>
+          <Field label={results.testMode === "bike" ? "Peak power (W)" : "Peak pace (min/km)"}><input style={inputStyle} value={results.peakPace || ""} onChange={(e) => updateResults("peakPace", e.target.value)} /></Field>
+          <Field label="HR recovery, 1 min (bpm)"><input style={inputStyle} value={results.hrRecovery1} onChange={(e) => updateResults("hrRecovery1", e.target.value)} /></Field>
+          <Field label="HR recovery, 3 min (bpm)"><input style={inputStyle} value={results.hrRecovery3} onChange={(e) => updateResults("hrRecovery3", e.target.value)} /></Field>
+        </div>
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Exercise history and goals</div>
+        <textarea style={{ ...inputStyle, width: "100%", minHeight: 80, marginTop: 12, resize: "vertical", boxSizing: "border-box" }}
+          value={history} onChange={(e) => setHistory(e.target.value)} />
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Training zones</div>
+        <p style={{ fontSize: 12, color: C.inkFaint, margin: "4px 0 12px" }}>Check each zone's pace and heart rate, and change them if this client's protocol differs. Zones 4 and 5 start with the clinic's standard effort lengths and example sessions; edit any box to change them.</p>
+        <ZoneFormCards zones={zones} onChange={updateZone} isBike={results.testMode === "bike"} showDuration={false} />
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Recommended exercises</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          {recs.map((r, i) => {
+            const n = normRec(r);
+            const lab = { fontSize: 11.5, color: C.inkMuted, marginBottom: 3 };
+            const fi = { ...inputStyle, width: "100%", boxSizing: "border-box", minWidth: 0 };
+            return (
+              <div key={i} style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", background: C.surface }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input style={{ ...inputStyle, flex: 1, fontWeight: 600 }} placeholder="Exercise name" value={r.exercise} onChange={(e) => updateRec(i, "exercise", e.target.value)} />
+                  <button onClick={() => removeRec(i)} title="Remove exercise" style={{ border: "none", background: "none", cursor: "pointer", color: C.inkFaint, padding: 6 }}><Icon name="Trash2" size={16} /></button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr", gap: 8, marginTop: 10 }}>
+                  <div style={{ minWidth: 0 }}><div style={lab}>Sets</div><input style={fi} placeholder="e.g. 2–3" value={n.sets} onChange={(e) => updateRecField(i, "sets", e.target.value)} /></div>
+                  <div style={{ minWidth: 0 }}><div style={lab}>Reps</div><input style={fi} placeholder="e.g. 8–10" value={n.reps} onChange={(e) => updateRecField(i, "reps", e.target.value)} /></div>
+                  <div style={{ minWidth: 0 }}><div style={lab}>Times per week</div><input style={fi} placeholder="e.g. 3" value={n.freq} onChange={(e) => updateRecField(i, "perWeek", e.target.value)} /></div>
+                  <div style={{ minWidth: 0 }}><div style={lab}>Note (optional)</div><input style={fi} placeholder="e.g. add a weighted vest" value={n.rest} onChange={(e) => updateRecField(i, "note", e.target.value)} /></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <button onClick={addRec} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, border: "none", background: "none", color: C.teal, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+          <Icon name="Plus" size={15} /> Add exercise
+        </button>
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Stage-by-stage test data</div>
+        <p style={{ fontSize: 12, color: C.inkFaint, margin: "4px 0 12px" }}>Optional — powers the fitness trend chart.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr auto", gap: 8, fontSize: 11, color: C.inkFaint }}>
+            <div>Label</div><div>Time (min)</div><div>{results.testMode === "bike" ? "Power (W)" : "Speed (km/h)"}</div><div>Heart rate</div><div>VO2 (ml/kg/min)</div><div />
+          </div>
+          {stages.map((s, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr auto", gap: 8 }}>
+              <input style={inputStyle} value={s.label} onChange={(e) => updateStage(i, "label", e.target.value)} />
+              <input style={inputStyle} type="number" value={s.t} onChange={(e) => updateStage(i, "t", e.target.value)} />
+              <input style={inputStyle} type="number" value={s.speed === undefined ? "" : s.speed} onChange={(e) => updateStage(i, "speed", e.target.value)} />
+              <input style={inputStyle} type="number" value={s.hr} onChange={(e) => updateStage(i, "hr", e.target.value)} />
+              <input style={inputStyle} type="number" value={s.vo2} onChange={(e) => updateStage(i, "vo2", e.target.value)} />
+              <button onClick={() => removeStage(i)} style={{ border: "none", background: "none", cursor: "pointer", color: C.inkFaint, padding: 6 }}><Icon name="Trash2" size={16} /></button>
+            </div>
+          ))}
+        </div>
+        <button onClick={addStage} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, border: "none", background: "none", color: C.teal, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+          <Icon name="Plus" size={15} /> Add row
+        </button>
+      </section>
+      </React.Fragment>)}
+
+      <button onClick={onGenerate} style={{
+        width: "100%", padding: "14px 0", background: C.teal, color: "#fff", border: "none", borderRadius: 10,
+        fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "'Space Grotesk', system-ui, sans-serif",
+      }}>Generate report</button>
+    </div>
+  );
+}
+
+function TestDetails({ items }) {
+  const list = items.filter((t) => t[1] !== "" && t[1] != null);
+  if (!list.length) return null;
+  return (
+    <div className="avoid-break" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "-12px 0 26px" }}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: C.inkFaint, marginRight: 4 }}>Test details</span>
+      {list.map((t, i) => (
+        <div key={i} style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: "4px 11px", background: C.bg }}>
+          <div style={{ fontSize: 9, fontWeight: 600, color: C.inkMuted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{t[0]}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{t[1]}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function usePersistedChoice(key, initial, allowed) {
+  const [val, setVal] = useState(() => {
+    try {
+      const v = window.localStorage.getItem(key);
+      if (v && allowed.indexOf(v) !== -1) return v;
+    } catch (e) { /* storage unavailable: fall back to the default */ }
+    return initial;
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(key, val); } catch (e) { /* ignore */ }
+  }, [key, val]);
+  return [val, setVal];
+}
+
+function VO2Hero({ results, category, litres, pr }) {
+  const hasP = !!pr;
+  const p = hasP ? Math.max(0, Math.min(100, pr.pct)) : 0;
+  const bands = [
+    { label: "Very poor", from: 0, to: 20, col: C.sand },
+    { label: "Poor", from: 20, to: 40, col: C.amber },
+    { label: "Fair", from: 40, to: 60, col: C.coral },
+    { label: "Good", from: 60, to: 80, col: C.teal },
+    { label: "Excellent", from: 80, to: 95, col: C.tealDark },
+    { label: "Superior", from: 95, to: 100, col: C.blue },
+  ];
+  const active = Math.max(0, bands.findIndex((b) => b.label === category.label));
+  const word = results.testOutcome === "peak" ? "VO2peak" : "VO2max";
+  const bi = Math.max(0, Math.min(bands.length - 1, bands.findIndex((b, i) => p >= b.from && (p < b.to || i === bands.length - 1))));
+  const pin = Math.min(94, Math.max(6, ((bi + (p - bands[bi].from) / (bands[bi].to - bands[bi].from)) / bands.length) * 100));
+  return (
+    <div className="avoid-break" style={{ border: `1px solid ${C.line}`, borderRadius: 14, padding: "20px 24px 18px", marginBottom: 26, background: C.surface }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: C.inkMuted, marginBottom: 2 }}>Your {word}</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700, fontSize: 54, lineHeight: 1, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{results.vo2max}</span>
+            <span style={{ fontSize: 14, color: C.inkMuted }}>ml/kg/min</span>
+            {litres ? <span style={{ fontSize: 14, color: C.inkFaint }}>· {litres} L/min</span> : null}
+          </div>
+        </div>
+        {hasP ? (
+          <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
+            <div>
+              <span style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700, fontSize: 28, lineHeight: 1, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{pr.text}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.ink, marginLeft: 6 }}>percentile</span>
+              <div style={{ fontSize: 12, color: C.inkMuted, marginTop: 2 }}>for your age and sex</div>
+            </div>
+            <div style={{ display: "inline-block", background: bands[active].col, color: "#fff", fontWeight: 700, fontSize: 13, padding: "5px 14px", borderRadius: 16 }}>{category.label} aerobic fitness</div>
+          </div>
+        ) : null}
+      </div>
+      {hasP ? (
+        <div style={{ marginTop: 22 }}>
+          <div style={{ position: "relative", height: 34 }}>
+            <div style={{ position: "absolute", left: `${pin}%`, top: 0, transform: "translateX(-50%)", textAlign: "center" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink, whiteSpace: "nowrap" }}>You: {pr.text}</div>
+              <div style={{ width: 0, height: 0, margin: "2px auto 0", borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: `8px solid ${C.ink}` }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 3 }}>
+            {bands.map((b, i) => (
+              <div key={i} style={{ flex: 1 }}>
+                <div style={{ height: 12, borderRadius: i === 0 ? "6px 2px 2px 6px" : i === bands.length - 1 ? "2px 6px 6px 2px" : 2, background: b.col, opacity: i === active ? 1 : 0.35 }} />
+                <div style={{ fontSize: 10.5, marginTop: 5, textAlign: "center", color: i === active ? C.ink : C.inkFaint, fontWeight: i === active ? 700 : 500 }}>{b.label}</div>
+              </div>
+            ))}
+          </div>
+          {pr.source ? <div style={{ fontSize: 10.5, color: C.inkFaint, marginTop: 10 }}>Compared with: {pr.source}</div> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------- percentile lane ---------- */
+function PercentileLane({ percentile, tone }) {
+  const p = Math.max(0, Math.min(100, Number(percentile) || 0));
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ position: "relative", height: 10, borderRadius: 6, background: `linear-gradient(90deg, ${C.bluePale}, ${C.tealPale} 55%, ${tone}33)`, border: `1px solid ${C.line}` }}>
+        <div style={{ position: "absolute", left: `${p}%`, top: "50%", transform: "translate(-50%,-50%)", width: 18, height: 18, borderRadius: "50%", background: tone, border: "3px solid var(--surface)", boxShadow: `0 0 0 1px ${C.line}` }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: C.inkFaint }}>
+        <span>0</span><span>25</span><span>50</span><span>75</span><span>100th percentile</span>
+      </div>
+      <p style={{ fontSize: 13, color: C.inkMuted, marginTop: 8 }}>
+        Compared with 100 similar people of the same age and sex, this result is better than about {p} of them.
+      </p>
+    </div>
+  );
+}
+
+/* ---------- hand-rolled trend chart (no external chart library) ---------- */
+function TrendChart({ stages, get1, get2, vo2max }) {
+  const data = stages.filter((s) => s.t !== "" && s.vo2 !== "" && !Number.isNaN(Number(s.t)) && !Number.isNaN(Number(s.vo2)))
+    .map((s) => ({ ...s, t: Number(s.t), vo2: Number(s.vo2) }));
+  if (data.length < 2) return null;
+  const W = 640, H = 224, padL = 48, padR = 10, padT = 14, padB = 40;
+  const maxT = Math.max(...data.map((d) => d.t)) || 1;
+  const g1 = Number(get1), g2 = Number(get2);
+  const maxVo2 = Math.max(Number(vo2max) || 0, ...data.map((d) => d.vo2)) * 1.08 || 1;
+  const x = (t) => padL + (t / maxT) * (W - padL - padR);
+  const y = (v) => (H - padB) - (v / maxVo2) * (H - padB - padT);
+  const pathD = data.map((d, i) => `${i === 0 ? "M" : "L"} ${x(d.t).toFixed(1)} ${y(d.vo2).toFixed(1)}`).join(" ");
+  return (
+    <div style={{ marginTop: 8 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ overflow: "visible" }}>
+        {!Number.isNaN(g1) && <rect x={padL} y={y(g1)} width={W - padL - padR} height={(H - padB) - y(g1)} fill={C.blue} opacity="0.10" />}
+        {!Number.isNaN(g1) && !Number.isNaN(g2) && <rect x={padL} y={y(g2)} width={W - padL - padR} height={y(g1) - y(g2)} fill={C.teal} opacity="0.11" />}
+        {!Number.isNaN(g2) && <rect x={padL} y={padT} width={W - padL - padR} height={y(g2) - padT} fill={C.coral} opacity="0.24" />}
+        {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
+          <text key={i} x={padL - 6} y={y(maxVo2 * f) + 3} textAnchor="end" fontSize="10" fill={C.inkFaint}>{Math.round(maxVo2 * f)}</text>
+        ))}
+        {data.map((d, i) => (i % 2 === 0 || i === data.length - 1) && (
+          <text key={i} x={x(d.t)} y={H - 24} textAnchor="middle" fontSize="10" fill={C.inkFaint}>{Number.isInteger(d.t) ? `${d.t}m` : secToClock(Math.round(d.t * 60))}</text>
+        ))}
+        {!Number.isNaN(g1) && <line x1={padL} x2={W - padR} y1={y(g1)} y2={y(g1)} stroke={C.blue} strokeDasharray="4 3" />}
+        {!Number.isNaN(g1) && <text x={padL + 4} y={y(g1) - 4} fontSize="10" fill={C.blue}>Threshold 1</text>}
+        {!Number.isNaN(g2) && <line x1={padL} x2={W - padR} y1={y(g2)} y2={y(g2)} stroke={C.coral} strokeDasharray="4 3" />}
+        {!Number.isNaN(g2) && <text x={padL + 4} y={y(g2) - 4} fontSize="10" fill={C.coral}>Threshold 2</text>}
+        <text x={padL + (W - padL - padR) / 2} y={H - 4} textAnchor="middle" fontSize="11" fontWeight="600" fill={C.inkMuted}>Time (minutes)</text>
+        <text transform={`translate(11 ${padT + (H - padB - padT) / 2}) rotate(-90)`} textAnchor="middle" fontSize="11" fontWeight="600" fill={C.inkMuted}>Oxygen use (ml/kg/min)</text>
+        <path d={pathD} fill="none" stroke={C.tealDark} strokeWidth="2.5" />
+        {data.map((d, i) => <circle key={i} cx={x(d.t)} cy={y(d.vo2)} r="2.5" fill={C.tealDark} />)}
+      </svg>
+      <div style={{ display: "flex", gap: 16, fontSize: 11, color: C.inkFaint, marginTop: 4, flexWrap: "wrap" }}>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, background: C.blue, opacity: 0.3, marginRight: 5, borderRadius: 2 }} />Easy — all-day pace</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, background: C.teal, opacity: 0.3, marginRight: 5, borderRadius: 2 }} />Moderate — sustainable effort</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, background: C.coral, opacity: 0.5, marginRight: 5, borderRadius: 2 }} />Hard — near maximal</span>
+      </div>
+    </div>
+  );
+}
+
+function StatBlock({ icon, label, value, sub }) {
+  return (
+    <div style={{ flex: "1 1 140px", padding: "14px 16px", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.inkMuted, fontSize: 12, marginBottom: 6 }}>
+        <Icon name={icon} size={14} /> {label}
+      </div>
+      <div style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700, fontSize: 20, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/* ---------- results diagram (embedded original illustrations) ---------- */
+const POSES = {
+  "treadmill-female": {
+    image: { href: "__BLOB_1__", x: 210.4, y: 8, width: 219.1, height: 280 },
+    maskDot: [328.7, 47.1], heartDot: [305.3, 97.4],
+    caption: "Treadmill, breath-by-breath gas analysis",
+  },
+  "bike-male": {
+    image: { href: "__BLOB_2__", x: 249.0, y: 8, width: 142.0, height: 280 },
+    maskDot: [322.8, 46.6], heartDot: [309.0, 98.1],
+    caption: "Stationary bike, breath-by-breath gas analysis",
+  },
+  "treadmill-male": {
+    image: { href: "__BLOB_3__", x: 188.6, y: 8, width: 262.7, height: 280 },
+    maskDot: [332.0, 40.6], heartDot: [315.0, 80.0],
+    caption: "Treadmill, breath-by-breath gas analysis",
+  },
+  "bike-female": {
+    image: { href: "__BLOB_4__", x: 216.0, y: 8, width: 207.9, height: 280 },
+    maskDot: [333.4, 37.5], heartDot: [315.0, 80.1],
+    caption: "Stationary bike, breath-by-breath gas analysis",
+  },
+};
+function PeakNote() {
+  return (
+    <div className="avoid-break" style={{ background: C.bg, borderLeft: `4px solid ${C.inkFaint}`, borderRadius: 8, padding: "10px 14px", margin: "10px 0 4px" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.inkMuted, marginBottom: 3 }}>Why VO2peak, not VO2max</div>
+      <div style={{ fontSize: 13, lineHeight: 1.55, color: C.ink }}>
+        A VO2max is confirmed when your oxygen use levels off even though the effort keeps rising. In this test that levelling off was not clearly seen, so we report the highest value you reached instead, called your <b>VO2peak</b>. It is still a reliable measure of your aerobic fitness and works well for tracking change and setting training zones. Your true maximum may be slightly higher.
+      </div>
+    </div>
+  );
+}
+
+function ResultsDiagram({ results, client, t1Label = "Threshold 1", t2Label = "Threshold 2", t1Unit = "ml/kg/min", t2Unit = "ml/kg/min", rowVals }) {
+  const genderKey = /^f/i.test((client && client.sex) || "") ? "female" : "male";
+  const modeKey = results.testMode === "bike" ? "bike" : "treadmill";
+  const pose = POSES[`${modeKey}-${genderKey}`] || POSES["treadmill-female"];
+  const vo2Label = results.testOutcome === "peak" ? "VO2peak" : "VO2max";
+  const rows = [
+    { x: 462, y: 86, dot: [pose.maskDot[0], pose.maskDot[1] - 3], color: C.blue, value: `${results.get1}`, unit: t1Unit, label: t1Label },
+    { x: 462, y: 176, dot: [pose.maskDot[0], pose.maskDot[1] + 3], color: C.coral, value: `${results.get2}`, unit: t2Unit, label: t2Label },
+  ].map((r, i) => (rowVals && rowVals[i + 1] ? { ...r, ...rowVals[i + 1] } : r));
+  const leftRows = [
+    { x: 150, y: 74, dot: [pose.maskDot[0], pose.maskDot[1] - 5], color: C.teal, value: `${results.vo2max}`, unit: "ml/kg/min", label: vo2Label },
+    { x: 150, y: 156, dot: pose.heartDot, color: C.wine, value: `${results.hrPeak}`, unit: "bpm", label: results.testOutcome === "peak" ? "Peak heart rate" : "Max heart rate" },
+  ];
+  const txt = { fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700 };
+  return (
+    <svg viewBox="0 0 640 316" width="100%" role="img">
+      <image href={pose.image.href} x={pose.image.x} y={pose.image.y} width={pose.image.width} height={pose.image.height} preserveAspectRatio="xMidYMid meet" />
+      <rect x={pose.image.x} y={pose.image.y + pose.image.height - 4} width={pose.image.width} height="6" fill={C.line} opacity="0.6" />
+      {rows.map((r, i) => (
+        <g key={i} className={r.blank ? "no-print" : undefined}>
+          <path d={`M${r.dot[0]} ${r.dot[1]} C ${r.dot[0] + 50} ${r.dot[1]}, ${r.x - 60} ${r.y}, ${r.x - 8} ${r.y}`} stroke={r.color} strokeWidth="1.5" strokeDasharray="3 3" fill="none" />
+          <circle cx={r.dot[0]} cy={r.dot[1]} r="3.5" fill={r.color} />
+          <text x={r.x} y={r.y - 2} {...txt} fontSize="17" fill={C.ink}>{r.value}<tspan fontSize="11" fontWeight="500" fill={C.inkFaint}> {r.unit}</tspan></text>
+          {r.sub ? <text x={r.x} y={r.y + 15} {...txt} fontSize="14" fill={C.ink}>{r.sub}</text> : null}
+          <text x={r.x} y={r.y - 21} fontSize="12" fontWeight="700" fill={C.teal}>{r.label}</text>
+        </g>
+      ))}
+      {leftRows.map((r, i) => (
+        <g key={"l" + i}>
+          <path d={`M${r.dot[0]} ${r.dot[1]} C ${r.dot[0] - 60} ${r.dot[1]}, ${r.x + 70} ${r.y}, ${r.x + 8} ${r.y}`} stroke={r.color} strokeWidth="1.5" strokeDasharray="3 3" fill="none" />
+          <circle cx={r.dot[0]} cy={r.dot[1]} r="3.5" fill={r.color} />
+          <text x={r.x} y={r.y - 2} textAnchor="end" {...txt} fontSize="17" fill={C.ink}>{r.value}<tspan fontSize="11" fontWeight="500" fill={C.inkFaint}> {r.unit}</tspan></text>
+          <text x={r.x} y={r.y - 21} textAnchor="end" fontSize="12" fontWeight="700" fill={C.ink}>{r.label}</text>
+        </g>
+      ))}
+      <text x="320" y="308" textAnchor="middle" fontSize="11" fill={C.inkFaint}>{pose.caption}</text>
+    </svg>
+  );
+}
+
+/* ---------- report view ---------- */
+function ReportView({ client, results, zones, recs, history, stages, summary, setSummary, onEdit, onInsertTemplate, rawNotice }) {
+  const look = normLookup({ vo2: results.vo2max, sex: client.sex, age: ageAtTest(client.dob, client.testDate), mode: results.testMode });
+  const pr = resolvePercentile(results.percentile, look);
+  const category = pr ? { ...classify(pr.pct), label: pr.category } : classify("");
+  const hrDrop1 = Number(results.hrPeak) - Number(results.hrRecovery1);
+  return (
+    <div style={{ background: C.bg, minHeight: "100%" }}>
+      <ReportToolbar onEdit={onEdit} />
+      {rawNotice ? <div className="no-print" style={{ maxWidth: 720, margin: "12px auto 0", padding: "10px 14px", borderRadius: 10, background: "var(--amber-pale)", color: C.ink, fontSize: 13 }}>Values from the raw data sheet haven't been confirmed yet. Open Edit report and tick "I've checked these choices" in the Raw data check.</div> : null}
+
+      <div className="report-sheet" style={{ maxWidth: 720, margin: "16px auto 60px", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "36px 40px 40px" }}>
+        <ReportHeader client={client} />
+
+        <ClientDetails kicker="Exercise assessment report for" name={client.name} items={[["Sex", client.sex], ["Date of birth", client.dob], ["Height", client.height ? `${client.height} cm` : ""], ["Weight", client.weight ? `${client.weight} kg` : ""]]} />
+
+        <VO2Hero results={results} category={category} pr={pr} />
+
+        <TestDetails items={[
+          ["Recovery, 1 min", Number.isNaN(hrDrop1) ? "" : `−${hrDrop1} bpm`],
+          ["Effort reached", results.rpe ? `${results.rpe} / 20` : ""],
+          ["Breathing (RER)", results.rer],
+        ]} />
+
+        <div style={{ marginBottom: 28 }}>
+          <div style={sectionTitleStyle}>How we measured it</div>
+          <p style={{ fontSize: 13, color: C.inkMuted, margin: "4px 0 4px" }}>
+            {results.testMode === "bike"
+              ? "You cycled on a stationary bike wearing a breathing mask, which measured the oxygen you used and the carbon dioxide you breathed out to calculate these results."
+              : "You ran on a treadmill wearing a breathing mask, which measured the oxygen you used and the carbon dioxide you breathed out to calculate these results."}
+          </p>
+          <ResultsDiagram results={results} client={client} rowVals={[
+            { value: results.peakPace || "–", unit: results.testMode === "bike" ? "W" : "min/km", sub: results.hrPeak ? `${results.hrPeak} bpm` : "", label: "At peak effort" },
+            { blank: !results.get1Pace, value: results.get1Pace || "Not entered yet", unit: results.get1Pace ? (results.testMode === "bike" ? "W" : "min/km") : "", sub: results.get1Hr ? `${results.get1Hr} bpm` : "", label: "Threshold 1" },
+            { blank: !results.get2Pace, value: results.get2Pace || "Not entered yet", unit: results.get2Pace ? (results.testMode === "bike" ? "W" : "min/km") : "", sub: results.get2Hr ? `${results.get2Hr} bpm` : "", label: "Threshold 2" },
+          ]} />
+          {results.testOutcome === "peak" ? <PeakNote /> : null}
+          <DefinitionBox term="Threshold 1 (Gas Exchange Threshold 1, or GET1)">is where the balance between the oxygen you use and the carbon dioxide you breathe out first shifts, which the mask measures breath by breath. It is linked to the upper limit of aerobic energy production, and in practice shows how well you tolerate long, moderate-intensity exercise.</DefinitionBox>
+          <DefinitionBox term="Threshold 2 (Gas Exchange Threshold 2, or GET2)">is the second shift in that balance. It is linked to the upper limit of prolonged aerobic performance, where your body uses both aerobic and anaerobic energy while still coping with the by-products. In practice it is the highest intensity you can sustain for short to moderate durations.</DefinitionBox>
+        </div>
+
+        {stages && stages.length > 1 && (
+          <div style={{ marginBottom: 28 }}>
+            <div style={sectionTitleStyle}>How your effort built up</div>
+            <p style={{ fontSize: 13, color: C.inkMuted, margin: "4px 0 0" }}>
+              Oxygen use climbed steadily through the test, crossing two points where your body's effort shifted up a gear — clinically known as gas exchange thresholds (GET1 and GET2). We call them <b>Threshold 1</b> and <b>Threshold 2</b> below.
+            </p>
+            <TrendChart stages={stages} get1={results.get1} get2={results.get2} vo2max={results.vo2max} />
+          </div>
+        )}
+
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }} className="no-print">
+            <div style={sectionTitleStyle}>What this means</div>
+            <button onClick={onInsertTemplate} style={{ border: "none", background: "none", color: C.teal, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0 }}>Insert starter template</button>
+          </div>
+          <AutoGrowTextarea id="summary-box" value={summary} onChange={setSummary} placeholder="Write your interpretation of this client's results here..." />
+          <p className="print-only" style={{ display: "none", fontSize: 14.5, lineHeight: 1.6, color: C.ink, whiteSpace: "pre-wrap" }}>{summary}</p>
+          {history && <p style={{ fontSize: 14.5, lineHeight: 1.6, color: C.inkMuted, marginTop: 12 }}>{history}</p>}
+        </div>
+
+        <div style={{ marginBottom: 28 }}>
+          <div style={sectionTitleStyle}>Your training zones</div>
+          <p style={{ fontSize: 12, color: C.inkFaint, margin: "4px 0 14px" }}>Use these to guide the intensity of your training.</p>
+          <ZoneOverview zones={zones.map((z, i) => ({ zone: `Zone ${i + 1}`, ...z }))} isBike={results.testMode === "bike"} peakHr={results.hrPeak} />
+          {zones.some((z) => z.showEx !== false) ? <ZoneGuide zones={zones.map((z, i) => ({ zone: `Zone ${i + 1}`, ...z }))} isBike={results.testMode === "bike"} peakHr={results.testOutcome === "max" ? results.hrPeak : ""} /> : null}
+        </div>
+
+        <div style={{ marginBottom: 8 }}>
+          <div style={sectionTitleStyle}>Your strength plan</div>
+          <p style={{ fontSize: 12, color: C.inkFaint, margin: "4px 0 14px" }}>Recommended additions to your weekly routine.</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {recs.map((r, i) => <PlanCard key={i} rec={r} />)}
+          </div>
+        </div>
+
+        <ReportFooter client={client} />
+      </div>
+    </div>
+  );
+}
+
+function parseRec(detail) {
+  let t = String(detail || "");
+  const take = (re) => { const m = t.match(re); if (m) { t = t.replace(m[0], " "); } return m; };
+  const freq = take(/(\d+(?:\s*[\u2013-]\s*\d+)?)\s*(?:x|\u00d7|times)\s*(?:per|a|\/)\s*week/i);
+  const sets = take(/(\d+(?:\s*[\u2013-]\s*\d+)?)\s*sets?/i);
+  const reps = take(/(\d+(?:\s*[\u2013-]\s*\d+)?)\s*reps?/i);
+  const rest = t.replace(/\bof\b/gi, " ").replace(/[,;]+/g, " ").replace(/\s+/g, " ").trim();
+  return { sets: sets && sets[1].replace(/\s/g, ""), reps: reps && reps[1].replace(/\s/g, ""), freq: freq && freq[1].replace(/\s/g, ""), rest };
+}
+function normRec(rec) {
+  if (rec && ("sets" in rec || "reps" in rec || "perWeek" in rec || "note" in rec)) {
+    return { sets: String(rec.sets || ""), reps: String(rec.reps || ""), freq: String(rec.perWeek || ""), rest: String(rec.note || "") };
+  }
+  const p = parseRec(rec && rec.detail);
+  return { sets: p.sets || "", reps: p.reps || "", freq: p.freq || "", rest: p.rest || "" };
+}
+function PlanCard({ rec }) {
+  const p = normRec(rec);
+  const known = p.sets || p.reps || p.freq;
+  const fallback = !known && !p.rest ? rec.detail : "";
+  const nDots = p.freq ? Math.min(7, parseInt(String(p.freq).split(/[\u2013-]/).pop(), 10) || 0) : 0;
+  const nLow = p.freq ? Math.min(7, parseInt(String(p.freq).split(/[\u2013-]/)[0], 10) || 0) : 0;
+  const tile = (label, val, suffix) => (
+    <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 12px", minWidth: 84, textAlign: "center" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.inkFaint }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, fontFamily: "'Space Grotesk', system-ui, sans-serif", fontVariantNumeric: "tabular-nums" }}>{val}{suffix ? <span style={{ fontSize: 12, fontWeight: 600, color: C.inkMuted }}>{suffix}</span> : null}</div>
+    </div>
+  );
+  return (
+    <div className="avoid-break" style={{ padding: "12px 14px", background: C.bg, borderRadius: 10, borderLeft: `4px solid ${C.teal}` }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{rec.exercise}</div>
+      {known ? (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "stretch", marginTop: 10 }}>
+          {p.sets ? tile("Sets", p.sets) : null}
+          {p.reps ? tile("Reps", p.reps) : null}
+          {p.freq ? (
+            <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 12px", minWidth: 100, textAlign: "center" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.inkFaint }}>Per week</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>{p.freq}<span style={{ fontSize: 12, fontWeight: 600, color: C.inkMuted }}>{"\u00d7"}</span></div>
+              {nDots ? (
+                <div style={{ display: "flex", gap: 3, justifyContent: "center", marginTop: 2 }}>
+                  {[0, 1, 2, 3, 4, 5, 6].map((d) => <span key={d} style={{ width: 7, height: 7, borderRadius: 4, background: d < nLow ? C.teal : d < nDots ? `${C.teal}66` : C.line, display: "inline-block" }} />)}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {(!known && (rec.detail || p.rest)) ? <div style={{ fontSize: 12.5, color: C.inkMuted, marginTop: 4 }}>{p.rest || rec.detail}</div> : null}
+      {(known && p.rest) ? <div style={{ fontSize: 12.5, color: C.inkMuted, marginTop: 8 }}>{p.rest}</div> : null}
+    </div>
+  );
+}
+
+function ClientDetails({ kicker, name, items }) {
+  const list = items.filter((it) => it[1]);
+  return (
+    <div className="avoid-break" style={{ marginBottom: 24 }}>
+      <div style={{ fontSize: 13, color: C.inkMuted }}>{kicker}</div>
+      <div style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700, fontSize: 28, color: C.ink, lineHeight: 1.2, marginBottom: 10 }}>{name}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {list.map((it, i) => (
+          <div key={i} style={{ background: C.bg, borderRadius: 8, padding: "5px 11px", minWidth: 60 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: C.inkFaint }}>{it[0]}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{it[1]}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- shared report chrome (used by both report types) ---------- */
+function ReportToolbar({ onEdit }) {
+  return (
+    <div className="no-print" style={{ maxWidth: 720, margin: "0 auto", padding: "16px 20px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <button onClick={onEdit} style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "none", color: C.inkMuted, fontSize: 13, cursor: "pointer", padding: 0 }}>
+        <Icon name="ArrowLeft" size={15} /> Edit report
+      </button>
+      <button onClick={() => window.print()} style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${C.line}`, background: C.surface, color: C.ink, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: "8px 14px", borderRadius: 8 }}>
+        <Icon name="Download" size={15} /> Export as PDF
+      </button>
+    </div>
+  );
+}
+function ReportHeader({ client }) {
+  return (
+    <div style={{
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      margin: "-36px -40px 26px -40px", padding: "22px 40px",
+      background: `linear-gradient(135deg, ${C.ink}, ${C.tealDark})`,
+      borderRadius: "13px 13px 0 0",
+    }}>
+      <div>
+        <img src={LOGO_B64} alt="HPC Exercise Physiology Clinic" style={{ height: 34, display: "block" }} />
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", marginTop: 4 }}>AUT Millennium</div>
+      </div>
+      <div style={{ textAlign: "right", fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.6 }}>
+        {client.reportDate ? <div><span style={{ color: "rgba(255,255,255,0.55)" }}>Report date </span><b style={{ color: "#fff", fontWeight: 600 }}>{client.reportDate}</b></div> : null}
+        {client.testDate ? <div><span style={{ color: "rgba(255,255,255,0.55)" }}>Test date </span><b style={{ color: "#fff", fontWeight: 600 }}>{client.testDate}</b></div> : null}
+      </div>
+    </div>
+  );
+}
+function ReportFooter({ client }) {
+  return (
+    <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 30, paddingTop: 18, fontSize: 12, color: C.inkFaint }}>
+      <div>{client.tester}</div>
+      <div style={{ marginTop: 2 }}>HPC Exercise Physiology Clinic · 17 Antares Place, Rosedale, Auckland · autmillennium.org.nz</div>
+    </div>
+  );
+}
+
+/* ---------- performance report: charts and tables ---------- */
+// Two series against speed (or power), each with its own axis, plus vertical threshold markers.
+function VentScatter({ veq1, veq2, vt1, vt2 }) {
+  const a = (veq1 || []).filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  const b = (veq2 || []).filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  if (a.length + b.length < 6) return null;
+  const all = a.concat(b);
+  const tMax = Math.max.apply(null, all.map((p) => p[0]).concat([vt1 || 0, vt2 || 0]));
+  const step = tMax <= 12 ? 1 : tMax <= 24 ? 2 : tMax <= 40 ? 3 : 5;
+  const xHi = Math.ceil(tMax / step) * step;
+  const xTicks = []; for (let v = 0; v <= xHi + 1e-9; v += step) xTicks.push(v);
+  const ys = niceScale(0, Math.max.apply(null, all.map((p) => p[1])), 5);
+  const W = 640, H = 290, padL = 50, padR = 16, padT = 30, padB = 42;
+  const X = (v) => padL + (v / xHi) * (W - padL - padR);
+  const Y = (v) => (H - padB) - ((v - ys.lo) / (ys.hi - ys.lo)) * (H - padB - padT);
+  const midY = (padT + H - padB) / 2;
+  const lines = [[vt1, "VT1"], [vt2, "VT2"]].filter((l) => Number.isFinite(l[0]));
+  return (
+    <div style={{ marginTop: 10 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Ventilatory equivalents over the test, with VT1 and VT2 marked" style={{ display: "block" }}>
+        {ys.ticks.map((t, i) => (
+          <g key={`y${i}`}>
+            <line x1={padL} x2={W - padR} y1={Y(t)} y2={Y(t)} stroke={C.line} />
+            <text x={padL - 6} y={Y(t) + 3} textAnchor="end" fontSize="10" fill={C.inkMuted}>{t}</text>
+          </g>
+        ))}
+        {xTicks.map((t, i) => (
+          <text key={`x${i}`} x={X(t)} y={H - padB + 15} textAnchor="middle" fontSize="10" fill={C.inkFaint}>{fmtClock(t)}</text>
+        ))}
+        <text x={(padL + W - padR) / 2} y={H - 8} textAnchor="middle" fontSize="11" fill={C.inkMuted}>Time (min)</text>
+        <text transform={`rotate(-90 12 ${midY})`} x="12" y={midY} textAnchor="middle" fontSize="11" fill={C.inkMuted}>Ventilatory equivalents (L/min)</text>
+        {a.map((p, i) => <circle key={`a${i}`} cx={X(p[0])} cy={Y(p[1])} r="3" fill={C.blue} opacity="0.85" />)}
+        {b.map((p, i) => <circle key={`b${i}`} cx={X(p[0])} cy={Y(p[1])} r="3" fill={C.teal} opacity="0.85" />)}
+        {lines.map((l, i) => (
+          <g key={`m${i}`}>
+            <line x1={X(l[0])} x2={X(l[0])} y1={padT - 6} y2={H - padB} stroke={C.ink} strokeWidth="1.5" />
+            <text x={X(l[0])} y={padT - 11} textAnchor="middle" fontSize="10.5" fontWeight="700" fill={C.ink}>{l[1]}</text>
+          </g>
+        ))}
+      </svg>
+      <div style={{ display: "flex", gap: 18, fontSize: 11.5, color: C.inkMuted, marginTop: 6, flexWrap: "wrap" }}>
+        <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: C.blue, marginRight: 6 }} />Air breathed per unit of oxygen (VE/VO2)</span>
+        <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: C.teal, marginRight: 6 }} />Air breathed per unit of carbon dioxide (VE/VCO2)</span>
+        {lines.length > 0 && <span>Vertical lines mark your thresholds</span>}
+      </div>
+    </div>
+  );
+}
+
+function SpeedChart({ rows, leftKey, leftLabel, leftColor, rightKey, rightLabel, rightColor, markers, xLabel, ariaLabel }) {
+  const pts = rows.map((r) => ({ x: num(r.speed), l: num(r[leftKey]), r: num(r[rightKey]) })).filter((p) => p.x !== null);
+  const lp = pts.filter((p) => p.l !== null);
+  const rp = pts.filter((p) => p.r !== null);
+  if (lp.length < 2) return null;
+  const mk = (markers || []).filter((m) => m.x !== null);
+  const allX = pts.map((p) => p.x).concat(mk.map((m) => m.x));
+  const xs = niceScale(Math.min.apply(null, allX), Math.max.apply(null, allX), 8);
+  const ls = niceScale(0, Math.max.apply(null, lp.map((p) => p.l)), 5);
+  const hasR = rp.length >= 2;
+  const rs = hasR ? niceScale(Math.min.apply(null, rp.map((p) => p.r)) - 5, Math.max.apply(null, rp.map((p) => p.r)) + 5, 5) : null;
+  const W = 640, H = 262, padL = 46, padR = hasR ? 48 : 16, padT = 28, padB = 42;
+  const X = (v) => padL + ((v - xs.lo) / (xs.hi - xs.lo)) * (W - padL - padR);
+  const YL = (v) => (H - padB) - ((v - ls.lo) / (ls.hi - ls.lo)) * (H - padB - padT);
+  const YR = (v) => (H - padB) - ((v - rs.lo) / (rs.hi - rs.lo)) * (H - padB - padT);
+  const path = (arr, key, Y) => arr.map((p, i) => `${i === 0 ? "M" : "L"} ${X(p.x).toFixed(1)} ${Y(p[key]).toFixed(1)}`).join(" ");
+  const midY = (padT + H - padB) / 2;
+  const band = mk.length >= 2 ? [Math.min(mk[0].x, mk[1].x), Math.max(mk[0].x, mk[1].x)] : null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={ariaLabel} style={{ display: "block" }}>
+        {band && <rect x={X(band[0])} y={padT} width={X(band[1]) - X(band[0])} height={H - padB - padT} fill={C.teal} opacity="0.07" />}
+        {ls.ticks.map((t, i) => (
+          <g key={`l${i}`}>
+            <line x1={padL} x2={W - padR} y1={YL(t)} y2={YL(t)} stroke={C.line} />
+            <text x={padL - 6} y={YL(t) + 3} textAnchor="end" fontSize="10" fill={leftColor}>{t}</text>
+          </g>
+        ))}
+        {hasR && rs.ticks.map((t, i) => (
+          <text key={`r${i}`} x={W - padR + 6} y={YR(t) + 3} textAnchor="start" fontSize="10" fill={rightColor}>{t}</text>
+        ))}
+        {xs.ticks.map((t, i) => (
+          <text key={`x${i}`} x={X(t)} y={H - padB + 15} textAnchor="middle" fontSize="10" fill={C.inkFaint}>{t}</text>
+        ))}
+        <text x={(padL + W - padR) / 2} y={H - 8} textAnchor="middle" fontSize="11" fill={C.inkMuted}>{xLabel}</text>
+        <text transform={`rotate(-90 12 ${midY})`} x="12" y={midY} textAnchor="middle" fontSize="11" fill={leftColor}>{leftLabel}</text>
+        {hasR && <text transform={`rotate(90 ${W - 9} ${midY})`} x={W - 9} y={midY} textAnchor="middle" fontSize="11" fill={rightColor}>{rightLabel}</text>}
+        {mk.map((m, i) => (
+          <g key={`m${i}`}>
+            <line x1={X(m.x)} x2={X(m.x)} y1={padT - 6} y2={H - padB} stroke={C.ink} strokeDasharray="4 3" opacity="0.55" />
+            <text x={X(m.x)} y={padT - 11} textAnchor="middle" fontSize="10.5" fontWeight="700" fill={C.ink}>{m.label}</text>
+          </g>
+        ))}
+        <path d={path(lp, "l", YL)} fill="none" stroke={leftColor} strokeWidth="2.5" strokeLinejoin="round" />
+        {lp.map((p, i) => <circle key={`lc${i}`} cx={X(p.x)} cy={YL(p.l)} r="3.2" fill={leftColor} />)}
+        {hasR && <path d={path(rp, "r", YR)} fill="none" stroke={rightColor} strokeWidth="2.5" strokeLinejoin="round" />}
+        {hasR && rp.map((p, i) => <rect key={`rc${i}`} x={X(p.x) - 3} y={YR(p.r) - 3} width="6" height="6" fill={rightColor} />)}
+      </svg>
+      <div style={{ display: "flex", gap: 18, fontSize: 11.5, color: C.inkMuted, marginTop: 6, flexWrap: "wrap" }}>
+        <span><span style={{ display: "inline-block", width: 18, height: 3, background: leftColor, marginRight: 6, verticalAlign: "middle", borderRadius: 2 }} />{leftLabel}</span>
+        {hasR && <span><span style={{ display: "inline-block", width: 18, height: 3, background: rightColor, marginRight: 6, verticalAlign: "middle", borderRadius: 2 }} />{rightLabel}</span>}
+      </div>
+    </div>
+  );
+}
+
+const STAGE_COLS = [
+  { k: "speed", h: "Speed", u: "km/h" }, { k: "pace", h: "Pace", u: "min/km" }, { k: "hr", h: "HR", u: "bpm" },
+  { k: "hrPct", h: "%HRmax", u: "" }, { k: "vo2", h: "VO2", u: "ml/kg/min" }, { k: "vo2L", h: "VO2", u: "L/min" },
+  { k: "vo2Pct", h: "%VO2max", u: "" }, { k: "rpe", h: "RPE", u: "" }, { k: "lactate", h: "Lactate", u: "mmol/L" },
+  { k: "ve", h: "VE", u: "L/min" }, { k: "rer", h: "RER", u: "" }, { k: "rf", h: "Rf", u: "br/min" },
+];
+function StageTable({ stages, isBike, showLactate = true }) {
+  const cols = [{ k: "__stage", h: "Stage", u: "" }, ...STAGE_COLS.filter((c) => !(isBike && c.k === "pace") && !(!showLactate && c.k === "lactate"))].map((c) => (isBike && c.k === "speed" ? { k: c.k, h: "Power", u: "W" } : c));
+  const cell = { padding: "6px 4px", textAlign: "right", fontVariantNumeric: "tabular-nums", fontSize: 12 };
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 540 }}>
+        <thead>
+          <tr>
+            {cols.map((c, i) => (
+              <th key={i} style={{ ...cell, fontSize: 10.5, fontWeight: 600, color: C.inkMuted, verticalAlign: "bottom", borderBottom: `1px solid ${C.inkFaint}` }}>
+                {c.h}<div style={{ fontWeight: 400, color: C.inkFaint }}>{c.u || " "}</div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {stages.map((s, i) => {
+            const isLast = i === stages.length - 1;
+            return (
+              <React.Fragment key={i}>
+                <tr style={{ background: isLast ? "#E4E2E7" : "transparent" }}>
+                  {cols.map((c, j) => (
+                    <td key={j} style={{ ...cell, color: C.ink, fontWeight: 400, borderBottom: `1px solid ${C.line}` }}>
+                      {c.k === "__stage" ? i + 1 : (s[c.k] === "" || s[c.k] == null ? "–" : s[c.k])}
+                    </td>
+                  ))}
+                </tr>
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ThresholdCard({ label, name, accent, row, isBike, text }) {
+  const r = row || {};
+  const tile = (title, value, unit, sub) => (
+    <div style={{ flex: "1 1 120px", minWidth: 0, background: `color-mix(in srgb, ${accent} 9%, #fff)`, borderRadius: 10, padding: "10px 12px" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.inkMuted, marginBottom: 3 }}>{title}</div>
+      <div style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700, fontSize: 26, lineHeight: 1.05, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
+        {value || "\u2013"}<span style={{ fontSize: 12, fontWeight: 500, color: C.inkMuted }}> {unit}</span>
+      </div>
+      {sub ? <div style={{ fontSize: 11.5, color: C.inkMuted, marginTop: 3 }}>{sub}</div> : null}
+    </div>
+  );
+  const chip = (txt) => <span style={{ fontSize: 11.5, color: C.inkMuted, border: `1px solid ${C.line}`, borderRadius: 12, padding: "2px 9px", background: C.surface, whiteSpace: "nowrap" }}>{txt}</span>;
+  return (
+    <div className="avoid-break" style={{ flex: "1 1 290px", background: C.surface, border: `1px solid ${C.line}`, borderTop: `4px solid ${accent}`, borderRadius: 12, padding: "14px 16px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12 }}>
+        <span style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700, fontSize: 13.5, color: "#fff", background: accent, borderRadius: 8, padding: "3px 10px", letterSpacing: "0.02em" }}>{label}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{name}</span>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {tile(isBike ? "Power" : "Pace", r.pace, isBike ? "W" : "min/km", "")}
+        {tile("Heart rate", r.hr, "bpm", r.pctHr ? `${r.pctHr}% of max` : "")}
+      </div>
+      {r.vo2 ? (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+          <span style={{ fontSize: 11, color: C.inkFaint, width: "100%" }}>Oxygen use at this point</span>
+          {chip(`${r.vo2}${r.vo2Plus ? ` (${r.vo2Plus})` : ""} ml/kg/min`)}
+          {r.pctVo2 ? chip(`${r.pctVo2}% of VO2max`) : null}
+        </div>
+      ) : null}
+      <p style={{ fontSize: 12.5, lineHeight: 1.55, color: C.inkMuted, margin: "12px 0 0", paddingTop: 10, borderTop: `1px solid ${C.line}` }}>{text}</p>
+    </div>
+  );
+}
+
+function zoneBounds(str) {
+  const t = String(str || "").match(/\d{1,2}:\d{2}/g);
+  if (t && t.length >= 2) return [t[0], t[1]];
+  const n = String(str || "").match(/\d{2,3}/g);
+  if (n && n.length >= 2) return [n[0], n[1]];
+  return null;
+}
+function ZoneOverview({ zones, isBike }) {
+  const list = zones || [];
+  const unit = isBike ? "W" : "min/km";
+  const clean = (s) => String(s || "").replace(/\s*\(.*?\)\s*/g, " ").trim();
+  return (
+    <div className="avoid-break" style={{ display: "flex", gap: 6, margin: "14px 0 6px", alignItems: "stretch" }}>
+      {list.map((z, i) => {
+        const col = ZONE_COLORS[i % ZONE_COLORS.length];
+        return (
+          <div key={i} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+            <div style={{ height: 8, borderRadius: 4, background: col }} />
+            <div style={{ background: `${col}1f`, borderRadius: 8, marginTop: 6, padding: "8px 8px 10px", flex: 1 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: C.inkMuted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{z.zone || `Zone ${i + 1}`}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, margin: "2px 0 6px", lineHeight: 1.25 }}>{z.name}</div>
+              <div style={{ fontSize: 11.5, color: C.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1.35 }}>{clean(z.pace)}{!z.pace || /min\/km|\bW\b/i.test(z.pace || "") ? null : <span style={{ color: C.inkFaint }}> {unit}</span>}</div>
+              <div style={{ fontSize: 11.5, color: C.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1.35 }}>{clean(z.hr)}{!z.hr || /bpm/i.test(z.hr || "") ? "" : <span style={{ color: C.inkFaint }}> bpm</span>}</div>
+              <div style={{ fontSize: 11, color: C.inkMuted, marginTop: 4 }}>{z.effort}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ThresholdScale({ vt1, vt2, showLactate, isBike }) {
+  const pos = (r, d) => { const v = Number(r && r.pctHr); return v ? Math.min(88, Math.max(12, (v - 50) * 2)) : d; };
+  const p1 = pos(vt1, 36);
+  let p2 = pos(vt2, 72);
+  if (p2 - p1 < 26) p2 = Math.min(92, p1 + 26);
+  const unit = isBike ? "W" : "min/km";
+  const abs = (p, top) => ({ position: "absolute", left: `${p}%`, top, transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" });
+  const head = (pp, title, tags, col) => (
+    <div style={abs(pp, 0)}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{title}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: col }}>{tags}</div>
+    </div>
+  );
+  const vals = (pp, r) => (
+    <div style={abs(pp, 0)}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{r && r.pace ? `${r.pace} ${unit}` : ""}</div>
+      <div style={{ fontSize: 11.5, color: C.inkMuted, fontVariantNumeric: "tabular-nums" }}>{r && r.hr ? `${r.hr} bpm` : ""}</div>
+    </div>
+  );
+  return (
+    <div className="avoid-break" style={{ margin: "18px 24px 8px" }}>
+      <div style={{ position: "relative", height: 38 }}>
+        {head(p1, "Threshold 1", showLactate ? "VT1 · LT1" : "VT1", C.blue)}
+        {head(p2, "Threshold 2", showLactate ? "VT2 · LT2" : "VT2", C.coral)}
+      </div>
+      <div style={{ position: "relative", height: 16, display: "flex" }}>
+        <div style={{ width: `${p1}%`, background: "#4CAF5066", borderRadius: "8px 0 0 8px" }} />
+        <div style={{ width: `${p2 - p1}%`, background: "#F2C94C99" }} />
+        <div style={{ flex: 1, background: "#EB575780", borderRadius: "0 8px 8px 0" }} />
+        <div style={{ position: "absolute", left: `${p1}%`, top: -6, bottom: -6, width: 4, marginLeft: -2, background: C.blue, borderRadius: 2 }} />
+        <div style={{ position: "absolute", left: `${p2}%`, top: -6, bottom: -6, width: 4, marginLeft: -2, background: C.coral, borderRadius: 2 }} />
+      </div>
+      <div style={{ position: "relative", height: 44, marginTop: 6 }}>
+        {vals(p1, vt1)}
+        {vals(p2, vt2)}
+      </div>
+    </div>
+  );
+}
+
+function ZoneFormCards({ zones, onChange, isBike, showDuration }) {
+  const unit = isBike ? "W" : "min/km";
+  const fs = { ...inputStyle, padding: "7px 9px", fontSize: 13, width: "100%", minWidth: 0, boxSizing: "border-box" };
+  const lab = { fontSize: 11.5, color: C.inkMuted, marginBottom: 3 };
+  const fld = (label, k, z, i, ph) => (
+    <div style={{ minWidth: 0 }}>
+      <div style={lab}>{label}</div>
+      <input style={fs} placeholder={ph || ""} value={z[k] || ""} onChange={(e) => onChange(i, k, e.target.value)} />
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: C.tealPale, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.ink, cursor: "pointer" }}>
+        <input type="checkbox" checked={zones.every((zz) => zz.showEx !== false)} onChange={(e) => zones.forEach((zz, k) => onChange(k, "showEx", e.target.checked))} style={{ width: 16, height: 16, accentColor: C.teal }} />
+        Include in-depth training zone information
+        <span style={{ fontWeight: 400, color: C.inkMuted }}>{zones.every((zz) => zz.showEx !== false) ? "· shown in the report" : "· hidden from the report"}</span>
+      </label>
+      {zones.map((z, i) => {
+        const col = ZONE_COLORS[i % ZONE_COLORS.length];
+        const pb = zoneBounds(z.pace), hb = zoneBounds(z.hr);
+        const end = (pbv, hbv) => [pbv ? `${pbv} ${unit}` : "", hbv ? `${hbv} bpm` : ""].filter(Boolean).join(" · ");
+        const hasEnds = z.durLow || z.durHigh;
+        return (
+          <div key={i} style={{ border: `1px solid ${C.line}`, borderLeft: `5px solid ${col}`, borderRadius: 10, padding: "12px 14px", background: C.surface }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 10 }}>Zone {i + 1}{z.name ? <span style={{ fontWeight: 500, color: C.inkMuted }}> · {z.name}</span> : null}</div>
+            <div style={{ display: "grid", gridTemplateColumns: showDuration ? "1.3fr 1.2fr 1fr 1fr 1fr" : "1.3fr 1.3fr 1fr 1fr", gap: 8 }}>
+              {fld("Name", "name", z, i)}
+              {fld(`Pace (${unit})`, "pace", z, i)}
+              {fld("Heart rate (bpm)", "hr", z, i)}
+              {fld("Perceived effort", "effort", z, i)}
+              {showDuration ? fld("Typical duration", "duration", z, i) : null}
+            </div>
+            <details open={!!hasEnds} style={{ marginTop: 12, paddingTop: 10, borderTop: `1px dashed ${C.line}` }}>
+              <summary style={{ fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer" }}>Practical guide <span style={{ fontWeight: 400, color: C.inkFaint }}>(optional): how long an effort lasts at each end of the zone{hasEnds ? "" : " · click to add"}</span></summary>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
+                <div style={{ background: C.bg, borderRadius: 8, padding: "8px 10px" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: C.inkMuted, marginBottom: 6 }}>Lower end · easier, for longer efforts</div>
+                  {fld("Effort length", "durLow", z, i, "e.g. 8 min")}
+                  <div style={{ height: 6 }} />
+                  {fld("Example session", "exLow", z, i, "3 × 8 min, 2 min rest")}
+                </div>
+                <div style={{ background: C.bg, borderRadius: 8, padding: "8px 10px" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: C.inkMuted, marginBottom: 6 }}>Upper end · harder, for shorter efforts</div>
+                  {fld("Effort length", "durHigh", z, i, "e.g. 2 min")}
+                  <div style={{ height: 6 }} />
+                  {fld("Example session", "exHigh", z, i, "6 × 2 min, 1 min rest")}
+                </div>
+              </div>
+              <div style={{ fontSize: 11.5, color: C.inkFaint, marginTop: 8 }}>
+                {hasEnds
+                  ? <span>In the report: lower end {end(pb && pb[0], hb && hb[0]) || "(range not read)"}{z.durLow ? `, efforts of around ${z.durLow}` : ""}; upper end {end(pb && pb[1], hb && hb[1]) || "(range not read)"}{z.durHigh ? `, efforts of around ${z.durHigh}` : ""}.</span>
+                  : <span>In the report: this zone shows only its pace, heart rate and effort{z.duration ? ` and the typical duration (${z.duration})` : ""}.</span>}
+              </div>
+            </details>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function sessionPath(sess, lineOnly, top) {
+  const hy = top == null ? 6 : top;
+  const total = sess.reduce((t, p) => t + p.s, 0) || 1;
+  const f = (n) => Math.round(n * 100) / 100;
+  let x = 3, d = lineOnly ? "M0 38 L3 38" : "M0 38 L3 38";
+  sess.forEach((p) => {
+    const w = p.s / total * 100;
+    if (p.work) d += ` L${f(x)} 38 L${f(x)} ${hy} L${f(x + w)} ${hy} L${f(x + w)} 38`;
+    else d += ` L${f(x + w)} 38`;
+    x += w;
+  });
+  d += " L106 38";
+  if (!lineOnly) d += " L106 38 L0 38 Z";
+  return d;
+}
+function rangeText(a, b) {
+  const pa = String(a || "").match(/([\d.]+)\s*(min|sec|s)/i), pb = String(b || "").match(/([\d.]+)\s*(min|sec|s)/i);
+  if (!pa || !pb) return "";
+  const ua = /^m/i.test(pa[2]) ? "min" : "sec", ub = /^m/i.test(pb[2]) ? "min" : "sec";
+  return ua === ub ? `${pa[1]}\u2013${pb[1]} ${ua}` : `${pa[1]} ${ua} \u2013 ${pb[1]} ${ub}`;
+}
+function zoneInterp(a, b, f) {
+  a = String(a || ""); b = String(b || "");
+  const ta = a.match(/(\d{1,2}):(\d{2})/), tb = b.match(/(\d{1,2}):(\d{2})/);
+  if (ta && tb) {
+    const v = (+ta[1] * 60 + +ta[2]) + ((+tb[1] * 60 + +tb[2]) - (+ta[1] * 60 + +ta[2])) * f;
+    const r = Math.round(v);
+    return Math.floor(r / 60) + ":" + String(r % 60).padStart(2, "0");
+  }
+  const na = parseFloat(a.replace(/[^\d.]/g, "")), nb = parseFloat(b.replace(/[^\d.]/g, ""));
+  if (!isNaN(na) && !isNaN(nb) && !/max/i.test(a + b) && !ta && !tb) return String(Math.round(na + (nb - na) * f));
+  return "";
+}
+function fmtSecs(sec) {
+  if (sec < 60) return Math.round(sec) + " sec";
+  if (sec % 60 === 0) return (sec / 60) + " min";
+  return (Math.round(sec / 6) / 10) + " min";
+}
+function zoneTicks(z, pb, hb, dl, dh) {
+  const ends = [
+    { dur: z.durLow, pace: pb && pb[0], hr: hb && hb[0] },
+    { dur: z.durHigh, pace: pb && pb[1], hr: hb && hb[1] },
+  ];
+  if (!(dl && dh) || dl === dh) return ends;
+  const nice = (v) => (v >= 120 ? Math.round(v / 30) * 30 : Math.max(5, Math.round(v / 5) * 5));
+  const out = [ends[0]];
+  [1, 2].forEach((k) => {
+    const secs = nice(dl + (dh - dl) * (k / 3));
+    const f = (dl - secs) / (dl - dh);
+    out.push({ dur: fmtSecs(secs), pace: zoneInterp(ends[0].pace, ends[1].pace, f), hr: zoneInterp(ends[0].hr, ends[1].hr, f) });
+  });
+  out.push(ends[1]);
+  return out;
+}
+function parseDurRange(str) {
+  const t = String(str || "");
+  const unit = /hr|hour/i.test(t) ? "hr" : /min/i.test(t) ? "min" : "";
+  const nums = (t.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+  if (nums.length >= 2) return [Math.max(nums[0], nums[1]) + " " + unit, Math.min(nums[0], nums[1]) + " " + unit];
+  if (nums.length === 1 && /[>+]/.test(t)) return ["", "> " + nums[0] + " " + unit];
+  return ["", ""];
+}
+function parseSecs(str) {
+  const m = String(str || "").match(/([\d.]+)\s*(min|minutes?|mins|sec|secs|seconds?|s)\b/i);
+  if (!m) return 0;
+  const v = parseFloat(m[1]);
+  return /^m/i.test(m[2]) ? v * 60 : v;
+}
+function parseSession(str) {
+  const m = String(str || "").match(/(\d+)\s*[\u00d7x]\s*([\d.]+)\s*(min|minutes?|mins|sec|secs|seconds?|s)\b/i);
+  if (!m) return null;
+  const n = Math.min(12, parseInt(m[1], 10));
+  if (!n || n < 1) return null;
+  const work = parseSecs(m[2] + " " + m[3]);
+  if (!work) return null;
+  const r = String(str).slice(m.index + m[0].length).match(/([\d.]+)\s*(min|minutes?|mins|sec|secs|seconds?|s)\b[^,]*rest/i);
+  const rest = r ? parseSecs(r[1] + " " + r[2]) : work * 2.5;
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    out.push({ work: true, s: work });
+    if (k < n - 1) out.push({ work: false, s: rest });
+  }
+  return out;
+}
+function ZoneGuide({ zones, isBike, peakHr }) {
+  const list = zones || [];
+  const unit = isBike ? "W" : "min/km";
+  const hasEx = list.some((z) => z.exLow || z.exHigh);
+  return (
+    <div style={{ marginTop: 22 }}>
+      <div className="avoid-break" style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 6 }}>What each zone looks like in practice</div>
+        <p style={{ fontSize: 12.5, lineHeight: 1.55, color: C.inkMuted, margin: "0 0 10px" }}>
+          Each zone is a range, not a single number. Use the <b>length of the effort</b> to decide where to sit inside it: a longer effort belongs at the easier (lower) end of the zone, a shorter effort can go towards the harder (upper) end.{hasEx ? <React.Fragment> The sessions shown are <b>examples</b> of ways to train in each zone, not the only options, and most sessions benefit more than one aspect of your fitness. In the example session graphs, each raised block is a hard rep and each flat line is rest.</React.Fragment> : null}
+        </p>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {list.map((z, i) => {
+          if (!(z.durLow || z.durHigh || z.duration || (z.pace && z.hr))) return null;
+          const col = ZONE_COLORS[i % ZONE_COLORS.length];
+          let pb = zoneBounds(z.pace), hb = zoneBounds(z.hr);
+          const hasEnds = z.durLow || z.durHigh;
+          if (hasEnds && !pb) { const one = String(z.pace || "").match(/\d{1,2}:\d{2}|\d{2,4}/); if (one) pb = ["< " + one[0], "Max"]; }
+          if (hasEnds && !hb) { const one = String(z.hr || "").match(/\d{2,3}/); if (one) hb = ["> " + one[0], String(peakHr || "").replace(/[^\d]/g, "") || "Max"]; }
+          const dl = parseSecs(z.durLow), dh = parseSecs(z.durHigh);
+          const maxS = Math.max(dl || 0, dh || 0);
+          const axisWrap = (svgEl) => (
+            <div style={{ display: "flex", gap: 4 }}>
+              <div style={{ width: 14, position: "relative", flexShrink: 0 }}>
+                <div style={{ position: "absolute", left: 7, top: "50%", transform: "translate(-50%, -50%) rotate(-90deg)", whiteSpace: "nowrap", fontSize: 10, color: C.inkFaint }}>{"Intensity \u2192"}</div>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {svgEl}
+                <div style={{ textAlign: "right", fontSize: 10, color: C.inkFaint, marginTop: 2 }}>{"Time \u2192"}</div>
+              </div>
+            </div>
+          );
+          const hillEnd = i === 2 ? 72 : i === 1 ? 88 : 103;
+          const hillTop = Math.round((38 - 32 * [0.25, 0.45, 0.65, 0.82, 1][Math.min(i, 4)]) * 10) / 10;
+          const end = (align, title, sub, pace, hr, dur, secs, ex, also) => {
+            const right = align === "right";
+            const sess = parseSession(ex);
+            const chip = { display: "inline-flex", alignItems: "baseline", gap: 4, background: `${col}22`, borderRadius: 14, padding: "3px 10px", fontSize: 13, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" };
+            const small = { fontSize: 10.5, fontWeight: 500, color: C.inkMuted };
+            return (
+              <div style={{ flex: 1, minWidth: 0, textAlign: align }}>
+                {ex ? (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.inkMuted, marginBottom: 5 }}>Example session</div>
+                    {sess ? (
+                      <div>
+                        {axisWrap(<svg viewBox="0 0 106 40" preserveAspectRatio="none" style={{ width: "100%", height: 60, display: "block" }} aria-hidden="true">
+                          <path d={sessionPath(sess, false, hillTop)} fill={`${col}33`} stroke="none" />
+                          <path d={sessionPath(sess, true, hillTop)} fill="none" stroke={col} strokeWidth="2.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                          <line x1="0" y1="38" x2="106" y2="38" stroke={C.inkFaint} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                          <line x1="0" y1="0" x2="0" y2="38" stroke={C.inkFaint} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+              </svg>)}
+                      </div>
+                    ) : null}
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink, marginTop: 5, lineHeight: 1.4 }}>{String(ex).replace(/^\s*e\.g\.?\s*/i, "")}</div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          };
+          const hillBlock = (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${C.line}` }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.inkMuted, marginBottom: 5 }}>What a session could look like <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: C.inkFaint }}>· intensity over time</span></div>
+              {axisWrap(<svg viewBox="0 0 106 40" preserveAspectRatio="none" style={{ width: "100%", height: 60, display: "block" }} aria-hidden="true">
+                <path d={`M0 38 L3 38 L3 ${hillTop} L${hillEnd} ${hillTop} L${hillEnd} 38 L106 38 L0 38 Z`} fill={`${col}33`} stroke="none" />
+                <path d={`M0 38 L3 38 L3 ${hillTop} L${hillEnd} ${hillTop} L${hillEnd} 38 L106 38`} fill="none" stroke={col} strokeWidth="2.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                <line x1="0" y1="38" x2="106" y2="38" stroke={C.inkFaint} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                <line x1="0" y1="0" x2="0" y2="38" stroke={C.inkFaint} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+              </svg>)}
+            </div>
+          );
+          const dr = parseDurRange(z.duration);
+          if (!hasEnds) {
+            if (pb == null && i === 0) {
+              const p1 = String(z.pace || "").match(/\d{1,2}:\d{2}|\d{2,4}/), h1 = String(z.hr || "").match(/\d{2,3}/);
+              if (p1) pb = ["Slower", p1[0]];
+              if (h1) hb = ["Lower", "< " + h1[0]];
+            }
+          }
+          const scaleBlock = (word, lowLabel, highLabel) => {
+            const chip = { display: "inline-block", background: "#fff", border: `1px solid ${col}66`, borderRadius: 12, padding: "2px 9px", fontSize: 12.5, fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
+                    const small = { fontSize: 10.5, fontWeight: 500, color: C.inkMuted };
+                    const chips = (al, pace, hr) => (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: al === "left" ? "flex-start" : "flex-end" }}>
+                        {pace ? <span style={chip}>{pace === "Max" ? "All-out" : pace}{pace === "Max" ? null : <span style={small}> {unit}</span>}</span> : null}
+                        {hr ? <span style={chip}><span style={{ color: C.teal }}>{"\u2665"}</span> {hr}{hr === "Max" ? null : <span style={small}> bpm</span>}</span> : null}
+                      </div>
+                    );
+                    return (
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, whiteSpace: "nowrap" }}>{z.zone} scale</span>
+                          <div style={{ flex: 1, height: 1, background: C.line }} />
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ position: "relative", height: 84, borderRadius: 10, background: `linear-gradient(90deg, ${col}26, ${col})` }}>
+                              <div style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}>{chips("left", pb && pb[0], hb && hb[0])}</div>
+                              <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)" }}>{chips("right", pb && pb[1], hb && hb[1])}</div>
+                            </div>
+                                                      </div>
+                        </div>
+                      </div>
+                    );
+          };
+          return (
+            <div key={i} className="avoid-break" style={{ border: `1px solid ${C.line}`, borderLeft: `4px solid ${col}`, borderRadius: 10, padding: "12px 14px", background: C.surface }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{z.zone} <span style={{ fontWeight: 500, color: C.inkMuted }}>· {z.name}</span></div>
+              </div>
+              {hasEnds ? (
+                <div style={{ marginTop: 10 }}>
+                  {scaleBlock("reps", z.durLow, z.durHigh)}
+                  <div style={{ display: "flex", gap: 18, marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${C.line}` }}>
+                    {end("left", "Lower end", "longer efforts", pb && pb[0], hb && hb[0], z.durLow, dl, z.showEx === false ? "" : z.exLow, z.alsoLow)}
+                    <div style={{ width: 1, background: C.line }} />
+                    {end("right", "Upper end", "shorter efforts", pb && pb[1], hb && hb[1], z.durHigh, dh, z.showEx === false ? "" : z.exHigh, z.alsoHigh)}
+                  </div>
+                </div>
+              ) : (
+pb && hb ? <div style={{ marginTop: 10 }}>{scaleBlock("", "", "")}{hillBlock}</div> : (z.duration ? <div style={{ fontSize: 12.5, color: C.inkMuted, marginTop: 6 }}>Typical duration: {z.duration}</div> : null)
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DefinitionBox({ term, children }) {
+  return (
+    <div className="avoid-break" style={{ background: C.bg, borderLeft: `4px solid ${C.teal}`, borderRadius: 8, padding: "10px 14px", margin: "10px 0 4px" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.teal, marginBottom: 3 }}>Definition</div>
+      <div style={{ fontSize: 13, lineHeight: 1.55, color: C.ink }}><b>{term}</b> {children}</div>
+    </div>
+  );
+}
+
+function ThresholdMap({ showLactate, blood }) {
+  const head = { padding: "8px 10px", fontSize: 11, fontWeight: 600, color: C.inkMuted, textAlign: "left", borderBottom: `1px solid ${C.inkFaint}`, verticalAlign: "bottom" };
+  const cell = { padding: "10px 10px", fontSize: 12.5, color: C.ink, borderBottom: `1px solid ${C.line}`, verticalAlign: "top", lineHeight: 1.5 };
+  const tag = (txt, col) => <span style={{ display: "inline-block", fontFamily: "'Space Grotesk', system-ui, sans-serif", fontWeight: 700, fontSize: 13, color: col, marginRight: 6 }}>{txt}</span>;
+  const row = (title, sub, col, vt, lt, plain, vtNote, ltNote) => (
+    <tr>
+      <td style={{ ...cell, borderLeft: `4px solid ${col}`, width: "30%" }}>
+        <div style={{ fontWeight: 700 }}>{title}</div>
+        <div style={{ color: C.inkMuted, fontSize: 12 }}>{sub}</div>
+        <div style={{ color: C.inkMuted, fontSize: 12, marginTop: 4 }}>{plain}</div>
+      </td>
+      <td style={cell}>{tag(vt, col)}<div style={{ color: C.inkMuted, fontSize: 12, marginTop: 2 }}>{vtNote}</div></td>
+      {showLactate ? <td style={cell}>{tag(lt, col)}<div style={{ color: C.inkMuted, fontSize: 12, marginTop: 2 }}>{ltNote}</div></td> : null}
+    </tr>
+  );
+  return (
+    <div>
+      <div style={{ overflowX: "auto", marginTop: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 420 }}>
+          <thead>
+            <tr>
+              <th style={head}>The two turning points</th>
+              <th style={head}>Found from your breathing<div style={{ fontWeight: 400 }}>Ventilatory threshold</div></th>
+              {showLactate ? <th style={head}>{blood ? "Found from your blood" : "Estimated from your breathing"}<div style={{ fontWeight: 400 }}>Lactate threshold</div></th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {row("Threshold 1", "Aerobic threshold", C.blue, "VT1", "LT1", "The top of easy, comfortable effort. Below it you can keep going for hours.", "Breathing first starts to speed up faster than your effort.", "Blood lactate first lifts above your resting level.")}
+            {row("Threshold 2", "Anaerobic threshold", C.coral, "VT2", "LT2", "The top of steady hard effort. Above it fatigue builds quickly.", "Breathing speeds up again, more steeply.", "Blood lactate climbs steeply and keeps rising.")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- performance report view ---------- */
+function PerformanceReportView({ client, results, perf, setPerf, onEdit, rawNotice }) {
+  const isBike = results.testMode === "bike";
+  const perfPr = resolvePercentile(perf.percentile, normLookup({ vo2: perf.vo2Ml, sex: client.sex, age: perf.age, mode: results.testMode }));
+  const work = isBike ? "power" : "pace";
+  const stages = (perf.stages || []).filter((s) => s.speed !== "" || s.hr !== "" || s.vo2 !== "");
+  const vt1 = (perf.vt && perf.vt[0]) || {}, vt2 = (perf.vt && perf.vt[1]) || {};
+  const lt1 = (perf.lt && perf.lt[0]) || {}, lt2 = (perf.lt && perf.lt[1]) || {};
+  const lactateOn = perf.bloodLactate !== false;
+  const rpeVals = stages.map((r) => num(r.rpe)).filter((v) => v !== null);
+  const lastRpe = rpeVals.length ? rpeVals[rpeVals.length - 1] : null;
+  const rerVals = stages.map((r) => num(r.rer)).filter((v) => v !== null);
+  const maxRer = rerVals.length ? Math.max.apply(null, rerVals).toFixed(2) : "";
+  const hasLactate = lactateOn && stages.filter((s) => num(s.lactate) !== null).length >= 2;
+  const lactateShown = lactateOn && (hasLactate || !!lt1.pace || !!lt2.pace);
+  const xLabel = isBike ? "Power (W)" : "Speed (km/h)";
+  const vtMarkers = [{ x: paceToX(vt1.pace), label: "VT1" }, { x: paceToX(vt2.pace), label: "VT2" }];
+  const ltMarkers = [{ x: paceToX(lt1.pace), label: "LT1" }, { x: paceToX(lt2.pace), label: "LT2" }];
+  const diagramResults = { testMode: results.testMode, vo2max: perf.vo2Ml, hrPeak: perf.hrMax, testOutcome: results.testOutcome };
+  const diagUnit = isBike ? "W" : "min/km";
+  const diagRows = [
+    { sub: [perf.vPace ? (isBike ? `${perf.vSpeed} W` : `${perf.vPace} min/km`) : "", perf.hrMax ? `${perf.hrMax} bpm` : ""].filter(Boolean).join(" · ") },
+    { value: vt1.pace || "–", unit: diagUnit, sub: vt1.hr ? `${vt1.hr} bpm` : "" },
+    { value: vt2.pace || "–", unit: diagUnit, sub: vt2.hr ? `${vt2.hr} bpm` : "" },
+  ];
+  const meta = [client.sex, perf.age ? `${perf.age} years` : "", perf.sport, client.height ? `${client.height} cm` : "", client.weight ? `${client.weight} kg` : ""]
+    .filter(Boolean).join(" · ");
+  const sec = { marginBottom: 28 };
+  const hint = { fontSize: 13, color: C.inkMuted, margin: "4px 0 4px", lineHeight: 1.55 };
+  const zoneCell = { padding: "8px 6px", fontSize: 12.5, color: C.ink, borderBottom: `1px solid ${C.line}`, textAlign: "left", verticalAlign: "top" };
+  const zoneHead = { padding: "6px 6px", fontSize: 10.5, fontWeight: 600, color: C.inkMuted, textAlign: "left", verticalAlign: "bottom", borderBottom: `1px solid ${C.inkFaint}` };
+  return (
+    <div style={{ background: C.bg, minHeight: "100%" }}>
+      <ReportToolbar onEdit={onEdit} />
+      {rawNotice ? <div className="no-print" style={{ maxWidth: 720, margin: "12px auto 0", padding: "10px 14px", borderRadius: 10, background: "var(--amber-pale)", color: C.ink, fontSize: 13 }}>Values from the raw data sheet haven't been confirmed yet. Open Edit report and tick "I've checked these choices" in the Raw data check.</div> : null}
+      <div className="report-sheet" style={{ maxWidth: 720, margin: "16px auto 60px", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "36px 40px 40px" }}>
+        <ReportHeader client={client} />
+
+        <ClientDetails kicker="Performance assessment report for" name={client.name} items={[["Sex", client.sex], ["Age", perf.age ? `${perf.age} years` : ""], ["Sport", perf.sport], ["Height", client.height ? `${client.height} cm` : ""], ["Weight", client.weight ? `${client.weight} kg` : ""]]} />
+
+        <VO2Hero results={{ vo2max: perf.vo2Ml, testOutcome: results.testOutcome }} category={perfPr ? { ...classify(perfPr.pct), label: perfPr.category } : classify("")} pr={perfPr} litres={perf.vo2L} />
+
+        <TestDetails items={[
+          [isBike ? "Power at VO2 max" : "Speed at VO2 max", perf.vSpeed ? (isBike ? `${perf.vSpeed} W` : `${perf.vSpeed} km/h`) : ""],
+          ["Effort reached", lastRpe ? `${lastRpe} / 20` : ""],
+          ["Breathing (RER)", maxRer ? String(maxRer) : ""],
+        ]} />
+
+        <div className={(perf.testDescription || perf.protocol) ? "avoid-break" : "no-print"} style={{ marginBottom: 28, padding: "14px 16px", background: C.bg, borderRadius: 10, fontSize: 12.5, lineHeight: 1.55, color: C.inkMuted }}>
+          <div className="no-print" style={{ fontWeight: 700, color: C.ink, marginBottom: 4 }}>Test</div>
+          <AutoGrowTextarea value={perf.testDescription || ""} onChange={(v) => setPerf((q) => ({ ...q, testDescription: v }))} placeholder="Describe the test that was done..." minHeight={44} fontSize={12.5} />
+          {perf.testDescription ? <div className="print-only" style={{ display: "none" }}><b style={{ color: C.ink }}>Test: </b>{perf.testDescription}</div> : null}
+          <div className="no-print" style={{ fontWeight: 700, color: C.ink, margin: "10px 0 4px" }}>Protocol</div>
+          <AutoGrowTextarea value={perf.protocol || ""} onChange={(v) => setPerf((q) => ({ ...q, protocol: v }))} placeholder="Describe the test protocol..." minHeight={44} fontSize={12.5} />
+          {perf.protocol ? <div className="print-only" style={{ display: "none", marginTop: 6 }}><b style={{ color: C.ink }}>Protocol: </b>{perf.protocol}</div> : null}
+        </div>
+
+        <div className="avoid-break" style={sec}>
+          <div style={sectionTitleStyle}>How we measured it</div>
+          <p style={hint}>
+            {isBike ? "You cycled on a stationary bike" : "You ran on a treadmill"} wearing a breathing mask, which measured the oxygen you used and the carbon dioxide you breathed out.
+          </p>
+          <ResultsDiagram results={diagramResults} client={client} t1Label="VT1" t2Label="VT2" rowVals={diagRows} />
+          {results.testOutcome === "peak" ? <PeakNote /> : null}
+          <DefinitionBox term="Threshold 1 (Gas Exchange Threshold 1, or GET1)">is where the balance between the oxygen you use and the carbon dioxide you breathe out first shifts, which the mask measures breath by breath. It is linked to the upper limit of aerobic energy production, and in practice shows how well you tolerate long, moderate-intensity exercise.</DefinitionBox>
+          <DefinitionBox term="Threshold 2 (Gas Exchange Threshold 2, or GET2)">is the second shift in that balance. It is linked to the upper limit of prolonged aerobic performance, where your body uses both aerobic and anaerobic energy while still coping with the by-products. In practice it is the highest intensity you can sustain for short to moderate durations.</DefinitionBox>
+        </div>
+
+        <div className="avoid-break" style={sec}>
+          <div style={sectionTitleStyle}>Understanding your thresholds</div>
+          <p style={hint}>
+            As effort rises, your body passes two turning points. <b style={{ color: C.ink }}>Threshold 1</b> is where easy effort starts to become moderate, and <b style={{ color: C.ink }}>Threshold 2</b> is the limit of effort you can hold steadily.
+            {hasLactate
+              ? " We find each one in two different ways: from your breathing and from the lactate in your blood. They measure the same turning points through different signals, so when the two agree we can be more confident in your numbers."
+              : ((lactateOn && (lt1.pace || lt2.pace)) ? " We find each one from your breathing: the ventilatory thresholds from how your breathing changes, and the lactate thresholds estimated from the same gas analysis, with no blood sample needed." : " We find each one from your breathing.")}
+          </p>
+          <ThresholdScale vt1={vt1} vt2={vt2} showLactate={lactateShown} isBike={isBike} />
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: C.inkMuted, marginTop: 10 }}>
+            <div><b style={{ color: C.ink }}>VT</b> ventilatory threshold: found from your breathing</div>
+            {lactateShown ? <div><b style={{ color: C.ink }}>LT</b> lactate threshold: {hasLactate ? "found from your blood" : "estimated from your breathing"}</div> : null}
+          </div>
+        </div>
+
+        <div className="avoid-break" style={sec}>
+          <div style={sectionTitleStyle}>How oxygen use and heart rate built up</div>
+          <p style={hint}>
+            As the {isBike ? "power" : "speed"} stepped up, oxygen use and heart rate climbed together. The dashed lines mark your two ventilatory thresholds, and the shaded band between them is your upper steady-state range.
+          </p>
+          <SpeedChart rows={stages} leftKey="vo2" leftLabel="Oxygen use (ml/kg/min)" leftColor={C.teal}
+            rightKey="hr" rightLabel="Heart rate (bpm)" rightColor={C.blue} markers={vtMarkers} xLabel={xLabel}
+            ariaLabel="Oxygen use and heart rate against speed, with ventilatory thresholds marked" />
+          {perf.vSpeed ? (
+          <p style={{ ...hint, marginTop: 14 }}>
+            <b style={{ color: C.ink }}>Your {isBike ? "power" : "speed"} at VO2 max</b> is {isBike ? `${perf.vSpeed} W` : `${perf.vSpeed} km/h (${perf.vPace} min/km)`}.
+            {isBike ? " It" : " This is called vVO2max, and it"} is a handy target for aerobic capacity intervals: training at or near it works your VO2 max hard and helps raise it. The higher it is, the better you tend to perform over most endurance distances.
+          </p>
+          ) : null}
+        </div>
+
+        <div style={sec}>
+          <div style={sectionTitleStyle}>Ventilatory thresholds (VT1 / VT2): from your breathing</div>
+          <DefinitionBox term="Ventilatory threshold">is a point where your breathing speeds up faster than your effort does. The mask measures how much air you move compared with the oxygen you use and the carbon dioxide you breathe out, and the shifts in that balance mark VT1 and VT2.</DefinitionBox>
+          {((perf.veq1 || []).length + (perf.veq2 || []).length) >= 6
+            ? <VentScatter veq1={perf.veq1} veq2={perf.veq2} vt1={parseClock(perf.vt1Time)} vt2={parseClock(perf.vt2Time)} />
+            : stages.filter((r) => num(r.ve) !== null).length >= 2 && (
+            <SpeedChart rows={stages} leftKey="ve" leftLabel="Ventilation (L/min)" leftColor={C.teal}
+              rightKey="hr" rightLabel="Heart rate (bpm)" rightColor={C.blue} markers={vtMarkers} xLabel={xLabel}
+              ariaLabel="Ventilation and heart rate against speed, with ventilatory thresholds marked" />
+          )}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
+            <ThresholdCard label="VT1" name="Aerobic threshold" accent={C.blue} row={vt1} isBike={isBike}
+              text={`Where your breathing first starts to rise faster than your effort. ${isBike ? "Power" : "Pace"} and heart rate at VT1 mark the boundary between recovery and steady endurance training.`} />
+            <ThresholdCard label="VT2" name="Anaerobic threshold" accent={C.coral} row={vt2} isBike={isBike}
+              text={"Where breathing climbs again, more steeply. This is the upper limit of steady-state effort: above it, heart rate and oxygen use cannot level off and fatigue arrives quickly. Widening the range you can hold below VT2 matters for every endurance athlete."} />
+          </div>
+        </div>
+
+        {lactateShown && (
+          <div style={sec}>
+            <div style={sectionTitleStyle}>Lactate thresholds (LT1 / LT2): {hasLactate ? "from your blood" : "from your breathing"}</div>
+            <p style={hint}>{hasLactate ? "These closely track your ventilatory thresholds. Same turning points, measured a different way." : "Estimated from the same breathing and gas analysis measurements, with no blood sample taken for this test."}</p>
+            <DefinitionBox term="Lactate threshold">{hasLactate ? "is a point where lactate in your blood starts to build up. A small blood sample taken at the end of each stage shows where LT1 and LT2 sit." : "is a point where lactate in your blood is expected to start building up. It is estimated from the gas analysis of your breathing, so no blood sample is needed."}</DefinitionBox>
+            <DefinitionBox term="Lactate">is a fuel by-product your muscles make whenever they work. At easy effort your body clears it as fast as it is made. As effort rises it is made faster than it is cleared, so it builds up in the blood.</DefinitionBox>
+            {hasLactate && (
+              <SpeedChart rows={stages} leftKey="lactate" leftLabel="Lactate (mmol/L)" leftColor={C.teal}
+                rightKey="hr" rightLabel="Heart rate (bpm)" rightColor={C.blue} markers={ltMarkers} xLabel={xLabel}
+                ariaLabel="Lactate and heart rate against speed, with lactate thresholds marked" />
+            )}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
+              <ThresholdCard label="LT1" name="First rise in lactate" accent={C.blue} row={lt1} isBike={isBike}
+                text="The first increase in blood lactate above your resting baseline. It usually lines up closely with VT1." />
+              <ThresholdCard label="LT2" name="Steep rise in lactate" accent={C.coral} row={lt2} isBike={isBike}
+                text="The second, sustained and steeper rise in blood lactate. It usually lines up closely with VT2." />
+            </div>
+          </div>
+        )}
+
+        <div className={perf.notes ? "" : "no-print"} style={sec}>
+          <div style={sectionTitleStyle}>Physiologist's notes</div>
+          <AutoGrowTextarea value={perf.notes} onChange={(v) => setPerf((p) => ({ ...p, notes: v }))} placeholder="Write your interpretation of this athlete's results here..." />
+          <p className="print-only" style={{ display: "none", fontSize: 14.5, lineHeight: 1.6, color: C.ink, whiteSpace: "pre-wrap" }}>{perf.notes}</p>
+        </div>
+
+        {perf.zones && perf.zones.length > 0 && (
+          <div className="avoid-break" style={sec}>
+            <div style={sectionTitleStyle}>Your training zones</div>
+            <p style={hint}>
+              {lactateOn ? "Based on your own lactate and heart-rate responses." : "Based on your own heart-rate and breathing responses."} Use them to guide training intensity. If your coach has their own zone definitions, the raw data below can be used to recalculate them. Zones may need small adjustments for outdoor conditions.
+            </p>
+            <ZoneOverview zones={perf.zones} isBike={isBike} />
+            {(perf.zones || []).some((z) => z.showEx !== false) ? <ZoneGuide zones={perf.zones} isBike={isBike} peakHr={results.testOutcome === "max" ? perf.hrMax : ""} /> : null}
+          </div>
+        )}
+
+        {stages.length > 0 && (
+          <div style={sec}>
+            <div style={{ ...sectionTitleStyle, marginBottom: 10 }}>Full test data</div>
+            <StageTable stages={stages} isBike={isBike} showLactate={lactateOn} />
+          </div>
+        )}
+
+        <ReportFooter client={client} />
+      </div>
+    </div>
+  );
+}
+
+/* ---------- performance report: form sections ---------- */
+function PerformanceFormSections({ client, results, setResults, perf, setPerf }) {
+  const upd = (k, v) => setPerf((p) => ({ ...p, [k]: v }));
+  const updRow = (key, i, k, v) => setPerf((p) => ({ ...p, [key]: p[key].map((row, idx) => (idx === i ? { ...row, [k]: v } : row)) }));
+  const addStage = () => setPerf((p) => ({ ...p, stages: [...p.stages, { speed: "", pace: "", hr: "", hrPct: "", vo2: "", vo2L: "", vo2Pct: "", rpe: "", lactate: "", ve: "", rer: "", rf: "", note: "" }] }));
+  const removeStage = (i) => setPerf((p) => ({ ...p, stages: p.stages.filter((_, idx) => idx !== i) }));
+  const isBike = results.testMode === "bike";
+  const wl = isBike ? "Power (W)" : "Pace (min/km)";
+  const small = { ...inputStyle, padding: "6px 6px", fontSize: 12.5, width: "100%", minWidth: 0 };
+  const rowOf = (key, i) => (perf[key] && perf[key][i]) || {};
+  const thresholdRow = (key, i, label, withPlus) => {
+    const r = rowOf(key, i);
+    const f = (title, k) => (<Field label={title}><input style={inputStyle} value={r[k] || ""} onChange={(e) => updRow(key, i, k, e.target.value)} /></Field>);
+    return (
+      <div key={`${key}${i}`} style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink, marginBottom: 6 }}>{label}</div>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${withPlus ? 6 : 5}, 1fr)`, gap: 8 }}>
+          {f("VO2 (ml/kg/min)", "vo2")}
+          {withPlus && f("VO2 range (+)", "vo2Plus")}
+          {f("% of VO2max", "pctVo2")}
+          {f("HR (bpm)", "hr")}
+          {f("% of HRmax", "pctHr")}
+          {f(wl, "pace")}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <React.Fragment>
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Test and VO2 max</div>
+        <div style={{ marginTop: 12 }}>
+          <Field label="Test type">
+            <div style={{ display: "flex", gap: 8 }}>
+              {["treadmill", "bike"].map((mode) => (
+                <button key={mode} onClick={() => setResults((r) => ({ ...r, testMode: mode }))} style={{
+                  flex: 1, padding: "8px 0", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  border: `1px solid ${results.testMode === mode ? C.teal : C.line}`,
+                  background: results.testMode === mode ? C.tealPale : C.surface,
+                  color: results.testMode === mode ? C.teal : C.inkMuted, textTransform: "capitalize",
+                }}>{mode}</button>
+              ))}
+            </div>
+          </Field>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 12 }}>
+          <Field label="Test description">
+            <textarea style={{ ...inputStyle, minHeight: 56, resize: "vertical" }} value={perf.testDescription} onChange={(e) => upd("testDescription", e.target.value)} />
+          </Field>
+          <Field label="Protocol">
+            <textarea style={{ ...inputStyle, minHeight: 72, resize: "vertical" }} value={perf.protocol} onChange={(e) => upd("protocol", e.target.value)} />
+          </Field>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 12 }}>
+          <Field label="VO2 max (ml/kg/min)"><input style={inputStyle} value={perf.vo2Ml} onChange={(e) => upd("vo2Ml", e.target.value)} /></Field>
+          <Field label="Percentile override (blank = from tables)"><input style={inputStyle} value={perf.percentile || ""} onChange={(e) => upd("percentile", e.target.value)} placeholder={normHint(normLookup({ vo2: perf.vo2Ml, sex: client.sex, age: perf.age, mode: results.testMode }))} /></Field>
+          <Field label="VO2 max (L/min)"><input style={inputStyle} value={perf.vo2L} onChange={(e) => upd("vo2L", e.target.value)} /></Field>
+          <Field label="Max HR (bpm)"><input style={inputStyle} value={perf.hrMax} onChange={(e) => upd("hrMax", e.target.value)} /></Field>
+          <Field label={isBike ? "Power at VO2 max (W)" : "Speed at VO2 max (km/h)"}><input style={inputStyle} value={perf.vSpeed} onChange={(e) => upd("vSpeed", e.target.value)} /></Field>
+          <Field label={isBike ? "(not used)" : "Pace at VO2 max"}><input style={inputStyle} value={perf.vPace} onChange={(e) => upd("vPace", e.target.value)} /></Field>
+        </div>
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Ventilatory thresholds</div>
+        {thresholdRow("vt", 0, "VT1 (aerobic threshold)", true)}
+        {thresholdRow("vt", 1, "VT2 (anaerobic threshold)", true)}
+        <div style={{ marginTop: 14, padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 10, background: C.surface }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>Ventilatory equivalents graph</div>
+          <div style={{ fontSize: 12, color: C.inkFaint, margin: "3px 0 8px" }}>
+            {((perf.veq1 || []).length + (perf.veq2 || []).length) >= 6
+              ? `${(perf.veq1 || []).length} VE/VO2 and ${(perf.veq2 || []).length} VE/VCO2 points loaded. Importing a PDF reads these from its chart; you can also paste your own below.`
+              : "No points yet. Importing a PDF reads them from its chart, or paste one row per line below: time, VE/VO2, VE/VCO2."}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <Field label="VT1 time (mm:ss)"><input style={inputStyle} value={perf.vt1Time == null || perf.vt1Time === "" ? "" : (typeof perf.vt1Time === "number" ? fmtClock(perf.vt1Time) : perf.vt1Time)} onChange={(e) => setPerf((p) => ({ ...p, vt1Time: e.target.value }))} placeholder="e.g. 12:40" /></Field>
+            <Field label="VT2 time (mm:ss)"><input style={inputStyle} value={perf.vt2Time == null || perf.vt2Time === "" ? "" : (typeof perf.vt2Time === "number" ? fmtClock(perf.vt2Time) : perf.vt2Time)} onChange={(e) => setPerf((p) => ({ ...p, vt2Time: e.target.value }))} placeholder="e.g. 19:20" /></Field>
+          </div>
+          <textarea id="vent-paste" rows={3} placeholder={"00:10, 32.5, 36.1\n00:20, 31.8, 35.4"} style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontFamily: "inherit" }} />
+          <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+            <button onClick={() => { const el = document.getElementById("vent-paste"); const r = parseVentPaste(el ? el.value : ""); if (r.veq1.length + r.veq2.length >= 6) { setPerf((p) => ({ ...p, veq1: r.veq1, veq2: r.veq2 })); if (el) el.value = ""; } }} style={{ border: `1px solid ${C.line}`, background: C.bg, borderRadius: 8, padding: "5px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: C.ink }}>Use pasted points</button>
+            <button onClick={() => setPerf((p) => ({ ...p, veq1: [], veq2: [] }))} style={{ border: "none", background: "none", color: C.teal, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Clear points</button>
+          </div>
+        </div>
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Lactate thresholds</div>
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", margin: "6px 0 10px", border: `1px solid ${C.line}`, borderRadius: 10, background: C.surface, cursor: "pointer" }}>
+          <input type="checkbox" checked={perf.bloodLactate !== false} onChange={(e) => setPerf((p) => ({ ...p, bloodLactate: e.target.checked }))} style={{ width: 16, height: 16, marginTop: 2, accentColor: C.teal }} />
+          <span><span style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>Blood lactate was taken</span><span style={{ display: "block", fontSize: 12, color: C.inkFaint, marginTop: 2 }}>Untick to leave all lactate results (LT1 / LT2, the lactate chart and the lactate column) out of the report.</span></span>
+        </label>
+        {perf.bloodLactate !== false ? <React.Fragment>
+          {thresholdRow("lt", 0, "LT1", false)}
+          {thresholdRow("lt", 1, "LT2", false)}
+        </React.Fragment> : null}
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Training zones</div>
+        <p style={{ fontSize: 12, color: C.inkFaint, margin: "4px 0 12px" }}>Imported from the PDF where available. Zones 4 and 5 also get the clinic's standard effort lengths and example sessions; edit any box to change them.</p>
+        <ZoneFormCards zones={perf.zones || []} onChange={(i, k, v) => updRow("zones", i, k, v)} isBike={isBike} showDuration={true} />
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <div style={sectionTitleStyle}>Stage-by-stage results</div>
+        <p style={{ fontSize: 12, color: C.inkFaint, margin: "4px 0 12px" }}>Powers the charts and the full data table. Leave a cell empty if it was not measured.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr)) 28px", gap: 4, fontSize: 10.5, color: C.inkFaint }}>
+            {STAGE_COLS.map((c, i) => <div key={i}>{isBike && c.k === "speed" ? "Power" : c.h}<br />{isBike && c.k === "speed" ? "W" : c.u}</div>)}
+            <div />
+          </div>
+          {(perf.stages || []).map((s, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr)) 28px", gap: 4 }}>
+              {STAGE_COLS.map((c) => (
+                <input key={c.k} style={small} value={s[c.k] == null ? "" : s[c.k]} onChange={(e) => updRow("stages", i, c.k, e.target.value)} />
+              ))}
+              <button onClick={() => removeStage(i)} style={{ border: "none", background: "none", cursor: "pointer", color: C.inkFaint, padding: 0 }}><Icon name="Trash2" size={15} /></button>
+            </div>
+          ))}
+        </div>
+        <button onClick={addStage} style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, border: "none", background: "none", color: C.teal, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+          <Icon name="Plus" size={15} /> Add row
+        </button>
+      </section>
+    </React.Fragment>
+  );
+}
+
+
+
+/* ---------- app ---------- */
+function App() {
+  const [view, setView] = usePersistedChoice("hpc-view", "report", ["report", "form"]);
+  const [client, setClient] = useState(defaultClient);
+  const [results, setResults] = useState(defaultResults);
+  const [zones, setZones] = useState(defaultZones);
+  const [recs, setRecs] = useState(defaultRecs);
+  const [history, setHistory] = useState(defaultHistory);
+  const [stages, setStages] = useState(defaultStages);
+  const [summary, setSummary] = useState(defaultSummary);
+  const [reportType, setReportType] = usePersistedChoice("hpc-report-type", "clinical", ["clinical", "performance"]);
+  const [perf, setPerf] = useState(defaultPerf);
+  const [importStatus, setImportStatus] = useState("idle");
+  const [importMessage, setImportMessage] = useState("");
+
+  const handleGenerate = () => setView("report");
+  const handleInsertTemplate = () => {
+    const pr0 = resolvePercentile(results.percentile, normLookup({ vo2: results.vo2max, sex: client.sex, age: ageAtTest(client.dob, client.testDate), mode: results.testMode }));
+    const text = summaryTemplate({ client, results: { ...results, percentileText: pr0 ? pr0.text : results.percentile }, category: pr0 ? { label: pr0.category } : classify(results.percentile) });
+    const el = document.getElementById("summary-box");
+    let done = false;
+    if (el) {
+      try {
+        // Typing-style insert so the browser's own undo (Cmd/Ctrl+Z) can bring the old text back
+        el.focus();
+        el.select();
+        done = document.execCommand("insertText", false, text);
+      } catch (err) { done = false; }
+    }
+    if (!done) setSummary(text);
+  };
+
+  const [raw, setRaw] = useState(null);
+  const [rawPick, setRawPickState] = useState({ vo2: "sheet", hr: "exercise", power: false });
+  const [rawConfirmed, setRawConfirmed] = useState(false);
+  const applyRawValues = (r, pick, full) => {
+    const v = rawToValues(r, pick);
+    if (reportType === "performance") {
+      setPerf((p) => ({ ...p, ...rawToPerf(r, pick, parseFloat(client.weight)), zones: p.zones, age: p.age }));
+      setResults((x) => ({ ...x, vo2max: v.vo2max, hrPeak: v.hrPeak }));
+      return;
+    }
+    setResults((x) => ({ ...x, ...v }));
+    setStages(rawToStages(r, pick.power));
+  };
+  const setRawPick = (pick) => { setRawPickState(pick); if (raw) applyRawValues(raw, pick, false); setRawConfirmed(false); };
+  const handleImportRaw = async (file) => {
+    const reportTypeNow = reportType;
+    setImportStatus("parsing"); setImportMessage("");
+    try {
+      const r = await readRawSheet(file);
+      const pick = { vo2: r.cand.sheet ? "sheet" : "b60", hr: "exercise", power: false };
+      const modeTxt = String((r.meta["Ergometer"] || "") + " " + (r.meta["Protocol"] || ""));
+      const mode = /tread|run/i.test(modeTxt) ? "treadmill" : /bike|cycle|watt/i.test(modeTxt) ? "bike" : null;
+      setRaw(r); setRawPickState(pick); setRawConfirmed(false);
+      setClient((c) => ({ ...c, name: r.name || c.name, sex: r.meta["Gender"] || c.sex, dob: r.meta["D.O.B."] || c.dob,
+        height: r.meta["Height (cm)"] != null ? String(r.meta["Height (cm)"]) : c.height, weight: r.meta["Weight (kg)"] != null ? String(r.meta["Weight (kg)"]) : c.weight,
+        testDate: r.testDateText || c.testDate, reportDate: "" }));
+      setResults((x) => ({ ...x, testMode: mode || x.testMode, percentile: "", maxSpeed: "", maxIncline: "", rpe: "", hrPredictedPct: "", hrRecovery3: "", testOutcome: "",
+        get1Pace: "", get2Pace: "", get1Hr: "", get2Hr: "", peakPace: "", ...rawToValues(r, pick) }));
+      setStages(rawToStages(r, false));
+      setZones((zs) => zs.map((z) => ({ ...z, pace: "", hr: "" })));
+      setRecs([]); setSummary(""); setHistory("");
+      if (reportType === "performance") {
+        const ageNum = r.meta["Age"] != null ? String(Math.floor(Number(r.meta["Age"]))) : "";
+        setPerf((p) => ({ ...p, ...rawToPerf(r, pick, parseFloat(r.meta["Weight (kg)"])), age: ageNum || p.age, zones: p.zones.map((z) => ({ ...z, pace: "", hr: "" })) }));
+      }
+      setImportStatus("done");
+      setImportMessage(`Read the raw data sheet${mode ? ` (${mode === "bike" ? "cycle" : "treadmill"} test)` : " — couldn't tell if this was a bike or treadmill test, please set it"}. Check the choices in the panel below.`);
+    } catch (err) {
+      setImportStatus("error"); setImportMessage("Couldn't read that file: " + (err && err.message ? err.message : "unknown error"));
+    }
+  };
+  const handleImportPdf = async (file) => {
+    setImportStatus("parsing");
+    setImportMessage("");
+    try {
+      const raw = await extractPdfLines(file);
+      const full = cleanPdfText(raw);
+      const detected = detectReportType(full);
+      if (detected === "performance") {
+        const pp = parsePerformanceReport(full);
+        const vent = await extractVentEquivalents(file);
+        let n = 0;
+        setClient((c) => {
+          const next = { ...c };
+          ["name", "sex", "height", "weight", "tester", "testDate"].forEach((k) => { if (pp.client[k]) { next[k] = pp.client[k]; n++; } });
+          return next;
+        });
+        setPerf((p) => {
+          const next = { ...p };
+          Object.keys(pp.perf).forEach((k) => {
+            const v = pp.perf[k];
+            if (k === "zones" && Array.isArray(v) && v.length > 0) {
+              next.zones = v.map((z, zi) => {
+                const d = defaultPerf.zones[zi] || {};
+                return d.durLow ? { ...z, durLow: d.durLow, durHigh: d.durHigh, exLow: d.exLow, exHigh: d.exHigh, alsoLow: d.alsoLow, alsoHigh: d.alsoHigh, duration: d.duration } : (d.alsoLow ? { ...z, alsoLow: d.alsoLow, alsoHigh: d.alsoHigh } : z);
+              });
+              n++;
+            } else if (Array.isArray(v) ? v.length > 0 : v) { next[k] = v; n++; }
+          });
+          if (vent) { next.veq1 = vent.veq1; next.veq2 = vent.veq2; next.vt1Time = vent.vt1Time; next.vt2Time = vent.vt2Time; }
+          {
+            const ltRows = Array.isArray(pp.perf.lt) ? pp.perf.lt : [];
+            const stRows = Array.isArray(pp.perf.stages) ? pp.perf.stages : [];
+            next.bloodLactate = ltRows.some((r) => r && r.pace) || stRows.filter((r) => r && r.lactate !== "" && r.lactate != null).length >= 2;
+          }
+          return next;
+        });
+        if (pp.testMode) setResults((r) => ({ ...r, testMode: pp.testMode }));
+        setReportType("performance");
+        setImportStatus("done");
+        setImportMessage(n > 0
+          ? "Performance report detected — please review every field below before generating the report."
+          : "Looks like a performance report but no fields were recognised. You can enter details manually below.");
+        setView("form");
+        return;
+      }
+      setReportType("clinical");
+      const parsed = parseReportText(full);
+      const stagesParsed = parseStages(full);
+      const recsParsed = parseRecommendations(full);
+      let count = 0;
+      setClient((c) => {
+        const next = { ...c };
+        if (parsed.name) { next.name = parsed.name; count++; }
+        if (parsed.dob) { next.dob = parsed.dob; count++; }
+        if (parsed.reportDate) { next.reportDate = parsed.reportDate; count++; }
+        if (parsed.testDate) { next.testDate = parsed.testDate; count++; }
+        if (parsed.height) { next.height = parsed.height; count++; }
+        if (parsed.weight) { next.weight = parsed.weight; count++; }
+        return next;
+      });
+      setResults((r) => {
+        const next = { ...r, testMode: parsed.testMode || r.testMode, get1Pace: "", get1Hr: "", get2Pace: "", get2Hr: "", peakPace: "" };
+        ["vo2max", "hrPeak", "hrPredictedPct", "maxSpeed", "maxIncline", "rpe",
+          "get1", "get1Pct", "get2", "get2Pct", "rer", "hrRecovery1", "hrRecovery3", "testDuration"]
+          .forEach((k) => { if (parsed[k]) { next[k] = parsed[k]; count++; } });
+        return next;
+      });
+      if (parsed.history) { setHistory(parsed.history); count++; }
+      if (parsed.summary) { setSummary(parsed.summary); count++; }
+      if (recsParsed) { setRecs(recsParsed); count++; }
+      if (stagesParsed) {
+        setStages(stagesParsed); count++;
+        if (parsed.maxSpeed) {
+          const peak = (parsed.testMode || "treadmill") === "bike" ? String(Math.round(Number(parsed.maxSpeed))) : paceFromSpeed(parsed.maxSpeed);
+          if (peak) setResults((r) => ({ ...r, peakPace: peak }));
+        }
+      }
+      setImportStatus("done");
+      setImportMessage(count > 0
+        ? `Imported data from the PDF — please review every field below before generating the report.`
+        : `Couldn't find recognizable fields in that PDF. You can still enter details manually below.`);
+      setView("form");
+    } catch (err) {
+      console.error(err);
+      setImportStatus("error");
+      setImportMessage("Couldn't read that PDF automatically. You can still enter details manually below.");
+      setView("form");
+    }
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg }}>
+      {view === "form" ? (
+        <ReportForm client={client} setClient={setClient} results={results} setResults={setResults}
+          zones={zones} setZones={setZones} recs={recs} setRecs={setRecs} history={history} setHistory={setHistory}
+          stages={stages} setStages={setStages} onGenerate={handleGenerate} onImportPdf={handleImportPdf} onImportRaw={handleImportRaw} raw={raw} rawPick={rawPick} setRawPick={setRawPick} rawConfirmed={rawConfirmed} setRawConfirmed={setRawConfirmed}
+          importStatus={importStatus} importMessage={importMessage}
+          reportType={reportType} setReportType={setReportType} perf={perf} setPerf={setPerf} />
+      ) : reportType === "performance" ? (
+        <PerformanceReportView client={client} results={results} perf={perf} setPerf={setPerf} onEdit={() => setView("form")} rawNotice={raw && !rawConfirmed} />
+      ) : (
+        <ReportView client={client} results={results} zones={zones} recs={recs} history={history} stages={stages}
+          summary={summary} setSummary={setSummary} onEdit={() => setView("form")} onInsertTemplate={handleInsertTemplate} rawNotice={raw && !rawConfirmed} />
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
